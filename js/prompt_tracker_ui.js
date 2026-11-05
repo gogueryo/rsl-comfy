@@ -14,11 +14,12 @@ function hideBackendWidgets(node) {
     if (!node.widgets) return;
     node.widgets.forEach(w => {
         if ([
-            "AutoCaptureOn", "enable_auto_capture", "auto_prompt", "auto_negative", "auto_render_model",
+            "AutoCaptureOn", "auto_prompt", "auto_negative", "auto_render_model",
             "auto_image", "auto_steps", "auto_cfg", "auto_denoise", "auto_seed",
             "prompt_value", "negative_value", "category_value", "model_value",
             "loras_value", "config_value", "source_value", "tag_value",
-            "steps", "cfg", "denoise", "seed", "active_db", "master_root"
+            "steps", "cfg", "denoise", "seed", "active_db", "master_root",
+            "instance_uuid"
         ].includes(w.name)) {
             w.type = "hidden";
             w.computeSize = () => [0, -4];
@@ -97,6 +98,11 @@ app.registerExtension({
     async loadedGraphNode(node) {
         if (node.comfyClass === "PromptTrackerNode") {
             hideBackendWidgets(node);
+            const enableWidget = node.widgets?.find(w => w.name === "enable_auto_capture");
+            if (enableWidget) {
+                enableWidget.computeSize = () => [0, -4];
+                enableWidget.draw = function () { };
+            }
         }
     },
     async nodeCreated(node) {
@@ -105,11 +111,10 @@ app.registerExtension({
         if (!node.properties) node.properties = {};
         if (!node.properties.selected_database) node.properties.selected_database = "prompts_db";
         if (!node.properties.master_root) node.properties.master_root = "";
-        
-        // --- Persistent Instance UUID Assignment ---
+
         if (!node.properties.instanceUuid) {
-            node.properties.instanceUuid = (typeof crypto !== 'undefined' && crypto.randomUUID) 
-                ? crypto.randomUUID() 
+            node.properties.instanceUuid = (typeof crypto !== 'undefined' && crypto.randomUUID)
+                ? crypto.randomUUID()
                 : 'rsl-' + Math.random().toString(36).substring(2, 9) + Date.now();
         }
         const instanceUuid = node.properties.instanceUuid;
@@ -144,6 +149,11 @@ app.registerExtension({
         let activeSelectedModel = "undefined";
 
         hideBackendWidgets(node);
+        const enableWidget = node.widgets?.find(w => w.name === "enable_auto_capture");
+        if (enableWidget) {
+            enableWidget.computeSize = () => [0, -4];
+            enableWidget.draw = function () { };
+        }
 
         function getProxiedImageUrl(imgUrl) {
             if (!imgUrl) return "";
@@ -226,6 +236,7 @@ app.registerExtension({
                 if (w.name === "AutoCaptureOn") w.value = autoCaptureState;
                 if (w.name === "active_db") w.value = currentDbName;
                 if (w.name === "master_root") w.value = node.properties.master_root;
+                if (w.name === "instance_uuid") w.value = instanceUuid;
             });
         }
 
@@ -613,10 +624,10 @@ app.registerExtension({
 
                 const res = await api.fetchApi("/prompt_tracker/delete", {
                     method: "POST",
-                    body: JSON.stringify({ 
-                        db: currentDbName, 
-                        id: currentItem.id, 
-                        index: targetIndex, 
+                    body: JSON.stringify({
+                        db: currentDbName,
+                        id: currentItem.id,
+                        index: targetIndex,
                         master_root: node.properties.master_root,
                         instance_uuid: instanceUuid
                     })
@@ -1953,7 +1964,11 @@ app.registerExtension({
 
         updateBtn.onclick = async (e) => {
             if (e) e.stopPropagation();
-            if (selectedIndex === null || selectedIndex < 0 || selectedIndex >= localDb.length) return;
+            if (selectedIndex === null || selectedIndex < 0 || selectedIndex >= localDb.length) {
+                setStatus("Select a prompt first before updating!", true);
+                return;
+            }
+
             const category = activeSelectedCategory;
             const model = activeSelectedModel;
             const loras = lorasInput.value.trim();
@@ -1984,43 +1999,56 @@ app.registerExtension({
 
             const targetIndex = selectedIndex;
             const currentItem = localDb[targetIndex];
-            const res = await api.fetchApi("/prompt_tracker/update", {
-                method: "POST",
-                body: JSON.stringify({
-                    db: currentDbName,
-                    id: currentItem ? currentItem.id : null,
-                    index: targetIndex,
-                    category,
-                    model,
-                    loras,
-                    config,
-                    source,
-                    tags,
-                    prompt,
-                    negative,
-                    image_info,
-                    is_embedded,
-                    master_root: node.properties.master_root,
-                    source_master_root: node.properties.master_root || "",
-                    instance_uuid: instanceUuid
-                })
-            });
-            const data = await res.json();
-            if (data.status === "success") {
-                localDb = data.db;
-                await prefetchImagesAsBase64(localDb);
-                updateCategoryDropdowns();
-                renderList();
 
-                const visible = getVisibleRows();
-                const vizPos = visible.findIndex(r => r.originalIndex === targetIndex);
-                if (vizPos !== -1) {
-                    selectItemByIndex(vizPos, visible);
+            try {
+                const res = await api.fetchApi("/prompt_tracker/update", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        db: currentDbName,
+                        id: currentItem ? currentItem.id : null,
+                        index: targetIndex,
+                        category,
+                        model,
+                        loras,
+                        config,
+                        source,
+                        tags,
+                        prompt,
+                        negative,
+                        image_info,
+                        is_embedded,
+                        master_root: node.properties.master_root,
+                        source_master_root: node.properties.master_root || "",
+                        instance_uuid: instanceUuid
+                    })
+                });
+
+                if (!res.ok) {
+                    const errText = await res.text();
+                    console.error("Server returned error. Response body:", errText);
+                    setStatus("Update failed on server (check console)", true);
                 } else {
-                    selectedIndex = targetIndex;
-                    setActiveSelection(prompt, negative, image_info, is_embedded);
+                    const data = await res.json();
+                    if (data.status === "success") {
+                        localDb = data.db;
+                        await prefetchImagesAsBase64(localDb);
+                        updateCategoryDropdowns();
+                        renderList();
+
+                        const visible = getVisibleRows();
+                        const vizPos = visible.findIndex(r => r.originalIndex === targetIndex);
+                        if (vizPos !== -1) {
+                            selectItemByIndex(vizPos, visible);
+                        } else {
+                            selectedIndex = targetIndex;
+                            setActiveSelection(prompt, negative, image_info, is_embedded);
+                        }
+                        setStatus(`Updated prompt #${targetIndex + 1} in place`);
+                    }
                 }
-                setStatus(`Updated prompt #${targetIndex + 1} in place`);
+            } catch (err) {
+                console.error("CRITICAL FETCH ERROR caught:", err);
+                setStatus("Update failed due to network error (check console)", true);
             }
         };
 
@@ -2361,6 +2389,7 @@ app.registerExtension({
         node._autoPromptListener = async (e) => {
             if (!e.detail) return;
             if (String(e.detail.node_id) !== String(node.id)) return;
+            if (e.detail.instance_uuid && String(e.detail.instance_uuid) !== String(instanceUuid)) return;
 
             const wiredPrompt = e.detail.prompt || "";
             const wiredNeg = e.detail.negative || "";
@@ -2386,7 +2415,7 @@ app.registerExtension({
                     final_image_info = { ...final_image_info, image: base64 };
                 }
 
-                const res = await api.fetchApi("/prompt_tracker/add", {
+                await api.fetchApi("/prompt_tracker/add", {
                     method: "POST",
                     body: JSON.stringify({
                         db: currentDbName,
@@ -2406,27 +2435,8 @@ app.registerExtension({
                         instance_uuid: instanceUuid
                     })
                 });
-                const data = await res.json();
-                if (data.status === "success") {
-                    localDb = data.db;
-                    await prefetchImagesAsBase64(localDb);
-                    updateCategoryDropdowns();
-                    renderList();
-
-                    const addedIdx = localDb.findIndex(item => item.prompt === wiredPrompt);
-                    if (addedIdx !== -1) {
-                        const visible = getVisibleRows();
-                        const vizPos = visible.findIndex(r => r.originalIndex === addedIdx);
-                        if (vizPos !== -1) {
-                            selectItemByIndex(vizPos, visible);
-                        } else {
-                            selectedIndex = addedIdx;
-                            setActiveSelection(wiredPrompt, wiredNeg, final_image_info, is_embedded);
-                        }
-                    }
-                    setStatus("Auto-harvested wired prompt, image & metadata into new DB entry!");
-                }
             } catch (err) {
+                console.error("Failed to auto-add wired prompt:", err);
                 setStatus("Failed to auto-add wired prompt", true);
             }
         };
@@ -2437,10 +2447,10 @@ app.registerExtension({
             api.removeEventListener("rsl-database-refreshed", node._refreshListener);
         }
 
-        // --- UUID-BASED REMOTE UPDATE HANDLER ---
+        // --- UUID-BASED REMOTE UPDATE & DELETE HANDLER ---
         node._refreshListener = async (e) => {
             if (!e.detail) return;
-            
+
             if (e.detail.db === currentDbName && String(e.detail.master_root || "") === String(node.properties.master_root || "")) {
                 const isInitiator = String(e.detail.instance_uuid || "") === String(instanceUuid);
                 const action = e.detail.action;
@@ -2448,8 +2458,11 @@ app.registerExtension({
                 const savedScrollTop = listContainer.scrollTop;
 
                 const currentSelectedId = (selectedIndex !== null && localDb[selectedIndex]) ? localDb[selectedIndex].id : null;
+                const oldSelectedIndex = selectedIndex;
 
                 const masterRoot = node.properties.master_root || "";
+
+                // --- FIX: Ensure we await the fetch before doing any index lookups ---
                 const res = await api.fetchApi(`/prompt_tracker/get?db=${encodeURIComponent(currentDbName)}&master_root=${encodeURIComponent(masterRoot)}`);
                 localDb = await res.json();
                 await prefetchImagesAsBase64(localDb);
@@ -2457,7 +2470,29 @@ app.registerExtension({
 
                 if (currentSelectedId) {
                     const foundIdx = localDb.findIndex(item => item.id === currentSelectedId);
-                    selectedIndex = foundIdx !== -1 ? foundIdx : null;
+                    if (foundIdx !== -1) {
+                        selectedIndex = foundIdx;
+                    } else if (action === "delete" && oldSelectedIndex !== null) {
+                        // --- DELECTION FALLBACK RULE: Previous, else Next ---
+                        if (localDb.length === 0) {
+                            selectedIndex = null;
+                            setActiveSelection("", "", null, false);
+                        } else {
+                            let targetIdx = oldSelectedIndex > 0 ? oldSelectedIndex - 1 : 0;
+                            selectedIndex = Math.min(targetIdx, localDb.length - 1);
+                            const newItem = localDb[selectedIndex];
+                            const isEmb = newItem.is_embedded !== undefined ? newItem.is_embedded : true;
+                            setItemCategory(newItem.category || "General");
+                            setModelValue(newItem.model || "undefined");
+                            lorasInput.value = newItem.loras || "";
+                            configInput.value = newItem.config || "";
+                            sourceInput.value = newItem.source || "";
+                            tagInput.value = newItem.tags || "";
+                            setActiveSelection(newItem.prompt || "", newItem.negative || "", newItem.image_info || null, isEmb);
+                        }
+                    } else {
+                        selectedIndex = null;
+                    }
                 }
 
                 renderList();
@@ -2465,17 +2500,44 @@ app.registerExtension({
 
                 if (isInitiator) {
                     if ((action === "add" || action === "update") && targetId) {
+                        // localDb is now fully guaranteed to be loaded here!
                         const targetIdx = localDb.findIndex(item => item.id === targetId);
                         if (targetIdx !== -1) {
                             const visible = getVisibleRows();
                             const vizPos = visible.findIndex(r => r.originalIndex === targetIdx);
-                            if (vizPos !== -1) selectItemByIndex(vizPos, visible);
+                            if (vizPos !== -1) {
+                                selectItemByIndex(vizPos, visible);
+                            } else {
+                                selectedIndex = targetIdx;
+                                const newItem = localDb[targetIdx];
+                                const isEmb = newItem.is_embedded !== undefined ? newItem.is_embedded : true;
+                                setItemCategory(newItem.category || "General");
+                                setModelValue(newItem.model || "undefined");
+                                lorasInput.value = newItem.loras || "";
+                                configInput.value = newItem.config || "";
+                                sourceInput.value = newItem.source || "";
+                                tagInput.value = newItem.tags || "";
+                                setActiveSelection(newItem.prompt || "", newItem.negative || "", newItem.image_info || null, isEmb);
+                            }
                         }
                     }
                     setStatus(`Successfully completed (${action})`, false);
                 } else {
                     // Remote action from another instance/machine
                     const shortId = targetId ? targetId.substring(0, 8) : "sync";
+
+                    if (targetId && currentSelectedId && targetId === currentSelectedId && selectedIndex !== null && localDb[selectedIndex]) {
+                        const updatedItem = localDb[selectedIndex];
+                        const isEmb = updatedItem.is_embedded !== undefined ? updatedItem.is_embedded : true;
+                        setItemCategory(updatedItem.category || "General");
+                        setModelValue(updatedItem.model || "undefined");
+                        lorasInput.value = updatedItem.loras || "";
+                        configInput.value = updatedItem.config || "";
+                        sourceInput.value = updatedItem.source || "";
+                        tagInput.value = updatedItem.tags || "";
+                        setActiveSelection(updatedItem.prompt || "", updatedItem.negative || "", updatedItem.image_info || null, isEmb);
+                    }
+
                     setStatus(`remote action: data updated for item #${shortId}`, false);
                 }
                 updateCounters(activeTextarea.value);
@@ -2535,7 +2597,7 @@ app.registerExtension({
             const masterRoot = node.properties.master_root || "";
             const res = await api.fetchApi(`/prompt_tracker/get?db=${encodeURIComponent(currentDbName)}&master_root=${encodeURIComponent(masterRoot)}`);
             localDb = await res.json();
-            
+
             await prefetchImagesAsBase64(localDb);
 
             updateCategoryDropdowns();
@@ -2756,6 +2818,11 @@ app.registerExtension({
             }
             syncFromProperties();
             hideBackendWidgets(this);
+            const enableWidget = this.widgets?.find(w => w.name === "enable_auto_capture");
+            if (enableWidget) {
+                enableWidget.computeSize = () => [0, -4];
+                enableWidget.draw = function () { };
+            }
 
             if (node.properties?.nodeSize) {
                 this.setSize(node.properties.nodeSize);

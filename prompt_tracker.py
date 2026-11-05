@@ -269,7 +269,7 @@ class PromptTrackerNode:
                 "AutoCaptureOn": ("BOOLEAN", {"default": True}),
             },
             "optional": {
-                "enable_auto_capture": ("BOOLEAN",),
+                "enable_auto_capture": ("BOOLEAN", {"forceInput": True}),
                 "auto_prompt": ("STRING", {"forceInput": True}),
                 "auto_negative": ("STRING", {"forceInput": True}),
                 "auto_render_model": ("STRING", {"forceInput": True}),
@@ -292,13 +292,14 @@ class PromptTrackerNode:
                 "seed": ("INT", {"default": 0}),
                 "active_db": ("STRING", {"default": "prompts_db"}),
                 "master_root": ("STRING", {"default": ""}),
+                "instance_uuid": ("STRING", {"default": ""}),
             },
             "hidden": {
                 "node_id": "UNIQUE_ID",
                 "prompt": "PROMPT"
             }
         }
-
+        
     RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "IMAGE")
     RETURN_NAMES = ("prompt", "negative", "category", "model", "loras", "config", "source", "tag", "IMAGE")
     FUNCTION = "track_prompt"
@@ -314,8 +315,8 @@ class PromptTrackerNode:
                      auto_image=None, auto_steps=None, auto_cfg=None, auto_denoise=None, auto_seed=None, 
                      prompt_value="", negative_value="", category_value="General", model_value="undefined", 
                      loras_value="", config_value="", source_value="", tag_value="", steps=20, cfg=8.0, 
-                     denoise=1.0, seed=0, active_db="prompts_db", master_root="", node_id=None, prompt=None):
-        
+                     denoise=1.0, seed=0, active_db="prompts_db", master_root="", instance_uuid="", node_id=None, prompt=None):
+                    
         def unwrap(val, default=""):
             v = val
             while isinstance(v, (list, tuple)):
@@ -329,6 +330,7 @@ class PromptTrackerNode:
         raw_auto = unwrap(auto_prompt)
         raw_auto_neg = unwrap(auto_negative)
         raw_auto_model = unwrap(auto_render_model)
+        final_instance_uuid = unwrap(instance_uuid)
         
         final_prompt = raw_auto if raw_auto.strip() else str(prompt_value or "")
         final_negative = raw_auto_neg if raw_auto_neg.strip() else str(negative_value or "")
@@ -364,6 +366,7 @@ class PromptTrackerNode:
             try:
                 PromptServer.instance.send_sync("rsl-auto-prompt-received", {
                     "node_id": str(node_id),
+                    "instance_uuid": final_instance_uuid,
                     "prompt": raw_auto,
                     "negative": final_negative,
                     "category": category_value,
@@ -382,7 +385,7 @@ class PromptTrackerNode:
                 })
             except Exception:
                 pass
-
+            
         return {
             "ui": {
                 "prompt": [final_prompt],
