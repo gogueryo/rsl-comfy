@@ -115,11 +115,7 @@ app.registerExtension({
         if (!node.properties.selected_database) node.properties.selected_database = "prompts_db";
         if (!node.properties.master_root) node.properties.master_root = "";
 
-        if (!node.properties.instanceUuid) {
-            node.properties.instanceUuid = (typeof crypto !== 'undefined' && crypto.randomUUID)
-                ? crypto.randomUUID()
-                : 'rsl-' + Math.random().toString(36).substring(2, 9) + Date.now();
-        }
+        // RSL: node.properties.instanceUuid will be set in onConfigure() for an instance value
         const getInstanceUuid = () => node.properties.instanceUuid;
 
         if (node.properties.selected_prompt_text === undefined) node.properties.selected_prompt_text = null;
@@ -2389,6 +2385,7 @@ app.registerExtension({
             api.removeEventListener("rsl-auto-prompt-received", node._autoPromptListener);
         }
 
+        // --- ISOLATED AUTO-PROMPT LISTENER (HANDLES ADD & SELECT) ---
         node._autoPromptListener = async (e) => {
             if (!e.detail) return;
             if (String(e.detail.node_id) !== String(node.id)) return;
@@ -2418,7 +2415,7 @@ app.registerExtension({
                     final_image_info = { ...final_image_info, image: base64 };
                 }
 
-                await api.fetchApi("/prompt_tracker/add", {
+                const res = await api.fetchApi("/prompt_tracker/add", {
                     method: "POST",
                     body: JSON.stringify({
                         db: currentDbName,
@@ -2438,6 +2435,26 @@ app.registerExtension({
                         instance_uuid: getInstanceUuid()
                     })
                 });
+                const data = await res.json();
+                if (data.status === "success") {
+                    localDb = data.db;
+                    await prefetchImagesAsBase64(localDb);
+                    const newIdx = localDb.length - 1;
+                    updateCategoryDropdowns();
+                    renderList();
+                    if (categoryDropdown.updateDisplay) categoryDropdown.updateDisplay();
+                    if (modelDropdown.updateDisplay) modelDropdown.updateDisplay();
+
+                    const visible = getVisibleRows();
+                    const vizPos = visible.findIndex(r => r.originalIndex === newIdx);
+                    if (vizPos !== -1) {
+                        selectItemByIndex(vizPos, visible);
+                    } else {
+                        selectedIndex = newIdx;
+                        setActiveSelection(wiredPrompt, wiredNeg, final_image_info, is_embedded);
+                    }
+                    setStatus("Auto-prompt added and selected successfully!");
+                }
             } catch (err) {
                 console.error("Failed to auto-add wired prompt:", err);
                 setStatus("Failed to auto-add wired prompt", true);
@@ -2450,7 +2467,7 @@ app.registerExtension({
             api.removeEventListener("rsl-database-refreshed", node._refreshListener);
         }
 
-        // --- UUID-BASED REMOTE UPDATE & DELETE HANDLER ---
+        // --- UNTOUCHED WORKING REVERT FOR REMOTE UPDATE & DELETE HANDLER ---
         node._refreshListener = async (e) => {
             if (!e.detail) return;
 
@@ -2465,7 +2482,7 @@ app.registerExtension({
 
                 const masterRoot = node.properties.master_root || "";
 
-                // --- FIX: Ensure we await the fetch before doing any index lookups ---
+                // --- Ensure we await the fetch before doing any index lookups ---
                 const res = await api.fetchApi(`/prompt_tracker/get?db=${encodeURIComponent(currentDbName)}&master_root=${encodeURIComponent(masterRoot)}`);
                 localDb = await res.json();
                 await prefetchImagesAsBase64(localDb);
@@ -2476,7 +2493,7 @@ app.registerExtension({
                     if (foundIdx !== -1) {
                         selectedIndex = foundIdx;
                     } else if (action === "delete" && oldSelectedIndex !== null) {
-                        // --- DELECTION FALLBACK RULE: Previous, else Next ---
+                        // --- DELETION FALLBACK RULE: Previous, else Next ---
                         if (localDb.length === 0) {
                             selectedIndex = null;
                             setActiveSelection("", "", null, false);
@@ -2503,7 +2520,6 @@ app.registerExtension({
 
                 if (isInitiator) {
                     if ((action === "add" || action === "update") && targetId) {
-                        // localDb is now fully guaranteed to be loaded here!
                         const targetIdx = localDb.findIndex(item => item.id === targetId);
                         if (targetIdx !== -1) {
                             const visible = getVisibleRows();
@@ -2799,11 +2815,6 @@ app.registerExtension({
                 node.properties.selected_database = dbWidget.value;
             }
 
-            const uuidWidget = node.widgets?.find(w => w.name === "instance_uuid");
-            if (uuidWidget && uuidWidget.value && !node.properties.instanceUuid) {
-                node.properties.instanceUuid = uuidWidget.value;
-            }
-
             if (node.properties?.master_root) {
                 masterPathInput.value = node.properties.master_root;
                 masterPathInput.title = node.properties.master_root;
@@ -2820,10 +2831,17 @@ app.registerExtension({
             }
         };
 
+        // RSL: All instance properties, including unique session IDs like instanceUuid, must be created/initialized or overwritten here to prevent workflow template or clone collisions across instances and machines.
         node.onConfigure = async function (o) {
             if (o && o.properties) {
                 node.properties = Object.assign({}, node.properties, o.properties);
             }
+
+            // Unconditionally overwrite instanceUuid to ensure it is a completely unique session runtime identifier
+            node.properties.instanceUuid = (typeof crypto !== 'undefined' && crypto.randomUUID)
+                ? crypto.randomUUID()
+                : 'rsl-' + Math.random().toString(36).substring(2, 9) + '-' + Math.floor(Math.random() * 100000);
+
             syncFromProperties();
             hideBackendWidgets(this);
             const enableWidget = this.widgets?.find(w => w.name === "enable_auto_capture");
