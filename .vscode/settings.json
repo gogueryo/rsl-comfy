@@ -1,0 +1,11 @@
+{
+    "python.defaultInterpreterPath": "D:/ComfyUI/ComfyUI-Easy-Install/python_embeded/python.exe",
+    "python.analysis.exclude": [
+        "**/python_embeded/Lib/**",
+        "**/python_embeded/libs/**",
+        "**/site-packages/**"
+    ],
+    "terminal.integrated.env.windows": {
+        "PATH": "D:\\ComfyUI\\ComfyUI-Easy-Install\\python_embeded;D:\\ComfyUI\\ComfyUI-Easy-Install\\python_embeded\\Scripts;${env:PATH}"
+    }
+}

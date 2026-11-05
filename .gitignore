@@ -1,0 +1,12 @@
+# Ignore local data storage and caches
+data/
+__pycache__/
+*.pyc
+tree.txt
+master_config.json
+ai_toolkit_presets.json
+bus_copy.txt
+
+# Ignore OS-specific files
+Thumbs.db
+.DS_Store
