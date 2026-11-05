@@ -18,10 +18,13 @@ function hideBackendWidgets(node) {
             "auto_image", "auto_steps", "auto_cfg", "auto_denoise", "auto_seed",
             "prompt_value", "negative_value", "category_value", "model_value",
             "loras_value", "config_value", "source_value", "tag_value",
-            "steps", "cfg", "denoise", "seed", "active_db", "master_root",
-            "instance_uuid"
+            "steps", "cfg", "denoise", "seed", "active_db", "master_root"
         ].includes(w.name)) {
             w.type = "hidden";
+            w.computeSize = () => [0, -4];
+            w.draw = function () { };
+        } else if (w.name === "instance_uuid") {
+            // Keep type valid so ComfyUI serializes it in prompt execution, but hide its footprint
             w.computeSize = () => [0, -4];
             w.draw = function () { };
         }
@@ -117,7 +120,7 @@ app.registerExtension({
                 ? crypto.randomUUID()
                 : 'rsl-' + Math.random().toString(36).substring(2, 9) + Date.now();
         }
-        const instanceUuid = node.properties.instanceUuid;
+        const getInstanceUuid = () => node.properties.instanceUuid;
 
         if (node.properties.selected_prompt_text === undefined) node.properties.selected_prompt_text = null;
         if (node.properties.promptFontSize === undefined) node.properties.promptFontSize = 12;
@@ -236,7 +239,7 @@ app.registerExtension({
                 if (w.name === "AutoCaptureOn") w.value = autoCaptureState;
                 if (w.name === "active_db") w.value = currentDbName;
                 if (w.name === "master_root") w.value = node.properties.master_root;
-                if (w.name === "instance_uuid") w.value = instanceUuid;
+                if (w.name === "instance_uuid") w.value = getInstanceUuid();
             });
         }
 
@@ -438,7 +441,7 @@ app.registerExtension({
             e.stopPropagation();
             if (selectedIndex === null || !localDb[selectedIndex]) return;
             const item = localDb[selectedIndex];
-            const transferData = createPromptTransferPayload(item, node.properties.master_root, instanceUuid);
+            const transferData = createPromptTransferPayload(item, node.properties.master_root, getInstanceUuid());
             e.dataTransfer.setData("application/rsl-prompt-transfer", JSON.stringify(transferData));
             e.dataTransfer.effectAllowed = "copy";
         };
@@ -629,7 +632,7 @@ app.registerExtension({
                         id: currentItem.id,
                         index: targetIndex,
                         master_root: node.properties.master_root,
-                        instance_uuid: instanceUuid
+                        instance_uuid: getInstanceUuid()
                     })
                 });
                 const data = await res.json();
@@ -1479,7 +1482,7 @@ app.registerExtension({
                 if (!newDb) return;
                 await api.fetchApi("/prompt_tracker/new_db", {
                     method: "POST",
-                    body: JSON.stringify({ db: newDb, master_root: node.properties.master_root, instance_uuid: instanceUuid })
+                    body: JSON.stringify({ db: newDb, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                 });
                 currentDbName = newDb;
                 node.properties.selected_database = currentDbName;
@@ -1502,7 +1505,7 @@ app.registerExtension({
                 if (!newName || newName === currentDbName) return;
                 await api.fetchApi("/prompt_tracker/rename_db", {
                     method: "POST",
-                    body: JSON.stringify({ old_db: currentDbName, new_db: newName, master_root: node.properties.master_root, instance_uuid: instanceUuid })
+                    body: JSON.stringify({ old_db: currentDbName, new_db: newName, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                 });
                 currentDbName = newName;
                 node.properties.selected_database = currentDbName;
@@ -1522,7 +1525,7 @@ app.registerExtension({
             try {
                 const res = await api.fetchApi("/prompt_tracker/clean_orphans", {
                     method: "POST",
-                    body: JSON.stringify({ master_root: node.properties.master_root, instance_uuid: instanceUuid })
+                    body: JSON.stringify({ master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                 });
                 const data = await res.json();
                 setStatus(data.message || "Cleaned orphans");
@@ -1541,7 +1544,7 @@ app.registerExtension({
             try {
                 const res = await api.fetchApi("/prompt_tracker/audit_images", {
                     method: "POST",
-                    body: JSON.stringify({ db: currentDbName, global: isGlobal, master_root: node.properties.master_root, instance_uuid: instanceUuid })
+                    body: JSON.stringify({ db: currentDbName, global: isGlobal, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                 });
                 const data = await res.json();
                 await fetchAndRender(false);
@@ -1624,7 +1627,7 @@ app.registerExtension({
                 item.starred = newStarredState;
                 await api.fetchApi("/prompt_tracker/toggle_star", {
                     method: "POST",
-                    body: JSON.stringify({ db: currentDbName, id: item.id, index: targetIndex, master_root: node.properties.master_root, instance_uuid: instanceUuid })
+                    body: JSON.stringify({ db: currentDbName, id: item.id, index: targetIndex, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                 });
                 updateStarButtonState();
                 renderList();
@@ -1762,7 +1765,7 @@ app.registerExtension({
                                 config: configInput.value,
                                 model: droppedModel || activeSelectedModel,
                                 master_root: node.properties.master_root,
-                                instance_uuid: instanceUuid
+                                instance_uuid: getInstanceUuid()
                             })
                         });
                         const visible = getVisibleRows();
@@ -1937,7 +1940,7 @@ app.registerExtension({
                     starred: false,
                     master_root: node.properties.master_root,
                     source_master_root: node.properties.master_root || "",
-                    instance_uuid: instanceUuid
+                    instance_uuid: getInstanceUuid()
                 })
             });
             const data = await res.json();
@@ -2019,7 +2022,7 @@ app.registerExtension({
                         is_embedded,
                         master_root: node.properties.master_root,
                         source_master_root: node.properties.master_root || "",
-                        instance_uuid: instanceUuid
+                        instance_uuid: getInstanceUuid()
                     })
                 });
 
@@ -2078,7 +2081,7 @@ app.registerExtension({
                     dbCategories.delete(catToDelete);
                     await api.fetchApi("/prompt_tracker/delete_category", {
                         method: "POST",
-                        body: JSON.stringify({ db: currentDbName, category: catToDelete, master_root: node.properties.master_root, instance_uuid: instanceUuid })
+                        body: JSON.stringify({ db: currentDbName, category: catToDelete, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                     });
                     if (activeSelectedCategory === catToDelete) { activeSelectedCategory = "General"; updateBackendWidgets(); }
                     await fetchAndRender(false);
@@ -2132,7 +2135,7 @@ app.registerExtension({
                     dbModels.delete(modelToDelete);
                     await api.fetchApi("/prompt_tracker/delete_model", {
                         method: "POST",
-                        body: JSON.stringify({ db: currentDbName, model: modelToDelete, master_root: node.properties.master_root, instance_uuid: instanceUuid })
+                        body: JSON.stringify({ db: currentDbName, model: modelToDelete, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                     });
                     if (activeSelectedModel === modelToDelete) { activeSelectedModel = "undefined"; updateBackendWidgets(); }
                     await fetchAndRender(false);
@@ -2278,7 +2281,7 @@ app.registerExtension({
                 const droppedPromptData = JSON.parse(rawData);
                 const sourceUuid = String(droppedPromptData.source_instance_uuid || "");
 
-                if (sourceUuid && sourceUuid === instanceUuid) {
+                if (sourceUuid && sourceUuid === getInstanceUuid()) {
                     setStatus("Cannot drop a prompt back onto the same tracker window!", true);
                     return;
                 }
@@ -2298,7 +2301,7 @@ app.registerExtension({
                     starred: droppedPromptData.starred || false,
                     master_root: node.properties.master_root,
                     source_master_root: droppedPromptData.source_master_root || "",
-                    instance_uuid: instanceUuid
+                    instance_uuid: getInstanceUuid()
                 };
 
                 const res = await api.fetchApi("/prompt_tracker/add", {
@@ -2389,7 +2392,7 @@ app.registerExtension({
         node._autoPromptListener = async (e) => {
             if (!e.detail) return;
             if (String(e.detail.node_id) !== String(node.id)) return;
-            if (e.detail.instance_uuid && String(e.detail.instance_uuid) !== String(instanceUuid)) return;
+            if (e.detail.instance_uuid && String(e.detail.instance_uuid) !== String(getInstanceUuid())) return;
 
             const wiredPrompt = e.detail.prompt || "";
             const wiredNeg = e.detail.negative || "";
@@ -2432,7 +2435,7 @@ app.registerExtension({
                         starred: false,
                         master_root: node.properties.master_root,
                         source_master_root: node.properties.master_root || "",
-                        instance_uuid: instanceUuid
+                        instance_uuid: getInstanceUuid()
                     })
                 });
             } catch (err) {
@@ -2452,7 +2455,7 @@ app.registerExtension({
             if (!e.detail) return;
 
             if (e.detail.db === currentDbName && String(e.detail.master_root || "") === String(node.properties.master_root || "")) {
-                const isInitiator = String(e.detail.instance_uuid || "") === String(instanceUuid);
+                const isInitiator = String(e.detail.instance_uuid || "") === String(getInstanceUuid());
                 const action = e.detail.action;
                 const targetId = e.detail.item_id;
                 const savedScrollTop = listContainer.scrollTop;
@@ -2644,7 +2647,7 @@ app.registerExtension({
                 row.draggable = true;
                 row.ondragstart = (e) => {
                     e.stopPropagation();
-                    const transferData = createPromptTransferPayload(item, node.properties.master_root, instanceUuid);
+                    const transferData = createPromptTransferPayload(item, node.properties.master_root, getInstanceUuid());
                     e.dataTransfer.setData("application/rsl-prompt-transfer", JSON.stringify(transferData));
                     e.dataTransfer.effectAllowed = "copy";
                 };
@@ -2661,7 +2664,7 @@ app.registerExtension({
                     item.starred = !item.starred;
                     await api.fetchApi("/prompt_tracker/toggle_star", {
                         method: "POST",
-                        body: JSON.stringify({ db: currentDbName, id: item.id, index: originalIndex, master_root: node.properties.master_root, instance_uuid: instanceUuid })
+                        body: JSON.stringify({ db: currentDbName, id: item.id, index: originalIndex, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                     });
                     rowStarBtn.innerText = item.starred ? "★" : "☆";
                     rowStarBtn.style.color = item.starred ? "#facc15" : activeTheme.textSecondary || "#9ca3af";
@@ -2707,7 +2710,7 @@ app.registerExtension({
                                 id: item.id,
                                 index: originalIndex,
                                 master_root: node.properties.master_root,
-                                instance_uuid: instanceUuid
+                                instance_uuid: getInstanceUuid()
                             })
                         });
                         const moveData = await moveRes.json();
@@ -2736,7 +2739,7 @@ app.registerExtension({
                     const del = async () => {
                         const res = await api.fetchApi("/prompt_tracker/delete", {
                             method: "POST",
-                            body: JSON.stringify({ db: currentDbName, id: item.id, index: targetIndex, master_root: node.properties.master_root, instance_uuid: instanceUuid })
+                            body: JSON.stringify({ db: currentDbName, id: item.id, index: targetIndex, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                         });
                         const data = await res.json();
                         if (data.status === "success") {
@@ -2794,6 +2797,11 @@ app.registerExtension({
             const dbWidget = node.widgets?.find(w => w.name === "active_db");
             if (dbWidget && dbWidget.value && !node.properties.selected_database) {
                 node.properties.selected_database = dbWidget.value;
+            }
+
+            const uuidWidget = node.widgets?.find(w => w.name === "instance_uuid");
+            if (uuidWidget && uuidWidget.value && !node.properties.instanceUuid) {
+                node.properties.instanceUuid = uuidWidget.value;
             }
 
             if (node.properties?.master_root) {
