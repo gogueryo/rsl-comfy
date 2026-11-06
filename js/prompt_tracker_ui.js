@@ -24,19 +24,18 @@ function hideBackendWidgets(node) {
             w.computeSize = () => [0, -4];
             w.draw = function () { };
         } else if (w.name === "instance_uuid") {
-            // Keep type valid so ComfyUI serializes it in prompt execution, but hide its footprint
             w.computeSize = () => [0, -4];
             w.draw = function () { };
         }
     });
 }
 
-function createResizeDivider(title, accentColor, onResizeDelta) {
+function createResizeDivider(title, accentColor, onResizeTotal) {
     const divider = document.createElement("div");
     divider.style.width = "100%";
-    divider.style.height = "16px";
-    divider.style.minHeight = "16px";
-    divider.style.cursor = "row-resize";
+    divider.style.height = "14px";
+    divider.style.minHeight = "14px";
+    divider.style.cursor = "grab";
     divider.style.display = "flex";
     divider.style.alignItems = "center";
     divider.style.justifyContent = "center";
@@ -44,7 +43,7 @@ function createResizeDivider(title, accentColor, onResizeDelta) {
     divider.style.touchAction = "none";
     divider.style.backgroundColor = accentColor ? `${accentColor}25` : "rgba(255, 255, 255, 0.05)";
     divider.style.borderRadius = "4px";
-    divider.style.margin = "3px 0";
+    divider.style.margin = "2px 0";
     divider.title = title;
 
     const line = document.createElement("div");
@@ -52,6 +51,7 @@ function createResizeDivider(title, accentColor, onResizeDelta) {
     line.style.height = "4px";
     line.style.backgroundColor = accentColor || "#4f46e5";
     line.style.borderRadius = "2px";
+    line.style.pointerEvents = "none";
     divider.appendChild(line);
 
     let isResizing = false;
@@ -59,14 +59,15 @@ function createResizeDivider(title, accentColor, onResizeDelta) {
 
     const onMove = (clientY) => {
         if (!isResizing) return;
-        const dy = clientY - startY;
-        startY = clientY;
-        onResizeDelta(dy);
+        const totalDy = clientY - startY;
+        onResizeTotal(totalDy);
     };
 
     const stopResize = () => {
         if (isResizing) {
             isResizing = false;
+            document.body.style.cursor = "";
+            divider.style.cursor = "grab";
             window.removeEventListener("mousemove", onMouseMove);
             window.removeEventListener("mouseup", stopResize);
             window.removeEventListener("touchmove", onTouchMove);
@@ -81,6 +82,8 @@ function createResizeDivider(title, accentColor, onResizeDelta) {
         e.preventDefault();
         isResizing = true;
         startY = e.clientY;
+        document.body.style.cursor = "grabbing";
+        divider.style.cursor = "grabbing";
         window.addEventListener("mousemove", onMouseMove);
         window.addEventListener("mouseup", stopResize);
     };
@@ -89,6 +92,8 @@ function createResizeDivider(title, accentColor, onResizeDelta) {
         if (!e.touches[0]) return;
         isResizing = true;
         startY = e.touches[0].clientY;
+        document.body.style.cursor = "grabbing";
+        divider.style.cursor = "grabbing";
         window.addEventListener("touchmove", onTouchMove, { passive: false });
         window.addEventListener("touchend", stopResize);
     };
@@ -141,13 +146,13 @@ app.registerExtension({
         if (!node.properties.selected_database) node.properties.selected_database = "prompts_db";
         if (!node.properties.master_root) node.properties.master_root = "";
 
-        // RSL: node.properties.instanceUuid will be set in onConfigure() for an instance value
         const getInstanceUuid = () => node.properties.instanceUuid;
 
         if (node.properties.selected_prompt_text === undefined) node.properties.selected_prompt_text = null;
         if (node.properties.promptFontSize === undefined) node.properties.promptFontSize = 12;
         if (node.properties.promptBoxHeight === undefined) node.properties.promptBoxHeight = 110;
         if (node.properties.negativeBoxHeight === undefined) node.properties.negativeBoxHeight = 70;
+        if (node.properties.topSectionHeight === undefined) node.properties.topSectionHeight = 260;
 
         let savedThemeKey = node.properties.activeTheme || "tracker";
         let activeTheme = getThemePalette(savedThemeKey);
@@ -330,12 +335,13 @@ app.registerExtension({
             }
         }
 
+        // --- MASTER CONTAINER ---
         const container = document.createElement("div");
         container.style.position = "relative";
         container.style.display = "flex";
         container.style.flexDirection = "column";
-        container.style.gap = "6px";
-        container.style.padding = "8px";
+        container.style.gap = "4px";
+        container.style.padding = "6px";
         container.style.backgroundColor = activeTheme.bgDark;
         container.style.color = activeTheme.textPrimary;
         container.style.fontSize = "12px";
@@ -345,6 +351,16 @@ app.registerExtension({
         container.style.width = "100%";
         container.style.height = "100%";
         container.style.overflow = "hidden";
+
+        // --- TOP SECTION WRAPPER ---
+        const topSectionWrapper = document.createElement("div");
+        topSectionWrapper.style.display = "flex";
+        topSectionWrapper.style.flexDirection = "column";
+        topSectionWrapper.style.gap = "4px";
+        topSectionWrapper.style.width = "100%";
+        topSectionWrapper.style.flexShrink = "0";
+        topSectionWrapper.style.overflow = "hidden";
+        topSectionWrapper.style.height = `${node.properties.topSectionHeight}px`;
 
         const baseStatusBarObj = createStatusBar(activeTheme);
         const statusBar = baseStatusBarObj.statusBar;
@@ -929,10 +945,10 @@ app.registerExtension({
         styleInput(dirPathInput, activeTheme);
 
         const dirListContainer = document.createElement("div");
-        dirListContainer.tabIndex = 0; // Enable focus for keyboard arrow navigation
+        dirListContainer.tabIndex = 0;
         dirListContainer.style.flex = "1";
-        dirListContainer.style.overflowY = "scroll"; // Explicitly scrollable with visible scrollbars
-        dirListContainer.style.scrollbarWidth = "thin"; // Firefox support
+        dirListContainer.style.overflowY = "scroll";
+        dirListContainer.style.scrollbarWidth = "thin";
         dirListContainer.style.border = `1px solid ${activeTheme.border}`;
         dirListContainer.style.borderRadius = "4px";
         dirListContainer.style.padding = "6px";
@@ -1044,7 +1060,6 @@ app.registerExtension({
             }
         }
 
-        // --- Arrow key navigation & Enter support inside directory list ---
         dirListContainer.onkeydown = (e) => {
             const children = Array.from(dirListContainer.children);
             if (children.length === 0) return;
@@ -1396,6 +1411,7 @@ app.registerExtension({
             document.querySelectorAll(".rsl-custom-dropdown").forEach(el => el.style.display = "none");
         });
 
+        // --- CONTROLS AND BUTTONS TOOLBAR ---
         const topToolbar = document.createElement("div");
         topToolbar.style.display = "flex";
         topToolbar.style.justifyContent = "space-between";
@@ -1482,7 +1498,6 @@ app.registerExtension({
         toolBtnGroup.appendChild(copyBtn);
         topToolbar.appendChild(counterBadge);
         topToolbar.appendChild(toolBtnGroup);
-        container.appendChild(topToolbar);
 
         const masterRow = document.createElement("div");
         masterRow.style.display = "flex";
@@ -1512,7 +1527,6 @@ app.registerExtension({
 
         masterRow.appendChild(masterBtn);
         masterRow.appendChild(masterPathInput);
-        container.appendChild(masterRow);
 
         const dbRow = document.createElement("div");
         dbRow.style.display = "flex";
@@ -1646,7 +1660,6 @@ app.registerExtension({
         dbRow.appendChild(cleanOrphansBtn);
         dbRow.appendChild(auditDbBtn);
         dbRow.appendChild(exportImagesBtn);
-        container.appendChild(dbRow);
 
         async function updateDbDropdown() {
             const masterRoot = node.properties.master_root || "";
@@ -1661,6 +1674,15 @@ app.registerExtension({
                 dbSelect.appendChild(opt);
             });
         }
+
+        // --- PROMPT GROUP CONTAINER (POSITIVE & NEGATIVE PROMPTS) ---
+        const promptGroupContainer = document.createElement("div");
+        promptGroupContainer.style.display = "flex";
+        promptGroupContainer.style.flexDirection = "column";
+        promptGroupContainer.style.flex = "1";
+        promptGroupContainer.style.gap = "2px";
+        promptGroupContainer.style.width = "100%";
+        promptGroupContainer.style.minHeight = "0";
 
         const activePromptBox = document.createElement("div");
         activePromptBox.style.display = "flex";
@@ -1870,18 +1892,37 @@ app.registerExtension({
         activeContentRow.appendChild(activeTextarea);
         activePromptBox.appendChild(titleRow);
         activePromptBox.appendChild(activeContentRow);
-        container.appendChild(activePromptBox);
+        promptGroupContainer.appendChild(activePromptBox);
 
-        const topResizeDivider = createResizeDivider("Drag to resize prompt height", activeTheme.borderFocus || "#4f46e5", (dy) => {
-            let newHeight = Math.max(50, Math.min(300, activePromptBox.clientHeight + dy));
-            activePromptBox.style.height = `${newHeight}px`;
-            node.properties.promptBoxHeight = newHeight;
+        // --- INNER DRAG DIVIDER (ABSOLUTE DRAG TRACKING WITH START HEIGHTS) ---
+        let startPosHeight = node.properties.promptBoxHeight;
+        let startNegHeight = node.properties.negativeBoxHeight;
+
+        const innerResizeDivider = createResizeDivider("Drag to balance Positive and Negative prompt heights", activeTheme.borderFocus || "#4f46e5", (totalDy) => {
+            let newPosHeight = Math.max(10, startPosHeight + totalDy);
+            let newNegHeight = Math.max(10, startNegHeight - totalDy);
+            activePromptBox.style.height = `${newPosHeight}px`;
+            activeNegativeBox.style.height = `${newNegHeight}px`;
+            node.properties.promptBoxHeight = newPosHeight;
+            node.properties.negativeBoxHeight = newNegHeight;
         });
-        container.appendChild(topResizeDivider);
+
+        // Capture starting heights when mouse goes down on inner divider
+        innerResizeDivider.addEventListener("mousedown", () => {
+            startPosHeight = activePromptBox.clientHeight;
+            startNegHeight = activeNegativeBox.clientHeight;
+        });
+        innerResizeDivider.addEventListener("touchstart", () => {
+            startPosHeight = activePromptBox.clientHeight;
+            startNegHeight = activeNegativeBox.clientHeight;
+        });
+
+        promptGroupContainer.appendChild(innerResizeDivider);
 
         const activeNegativeBox = document.createElement("div");
         activeNegativeBox.style.display = "flex";
         activeNegativeBox.style.flexDirection = "column";
+        activeNegativeBox.style.flex = "1";
         activeNegativeBox.style.gap = "2px";
         activeNegativeBox.style.backgroundColor = activeTheme.negBoxBg;
         activeNegativeBox.style.border = `1px solid ${activeTheme.negBoxBorder}`;
@@ -1914,14 +1955,42 @@ app.registerExtension({
 
         activeNegativeBox.appendChild(activeNegTitle);
         activeNegativeBox.appendChild(activeNegativeTextarea);
-        container.appendChild(activeNegativeBox);
+        promptGroupContainer.appendChild(activeNegativeBox);
 
-        const bottomResizeDivider = createResizeDivider("Drag to resize negative prompt box height", activeTheme.negBoxBorder || "#f472b6", (dy) => {
-            let newHeight = Math.max(35, Math.min(250, activeNegativeBox.clientHeight + dy));
-            activeNegativeBox.style.height = `${newHeight}px`;
-            node.properties.negativeBoxHeight = newHeight;
+        // --- ASSEMBLE TOP SECTION WRAPPER ---
+        topSectionWrapper.appendChild(topToolbar);
+        topSectionWrapper.appendChild(masterRow);
+        topSectionWrapper.appendChild(dbRow);
+        topSectionWrapper.appendChild(promptGroupContainer);
+
+        container.appendChild(topSectionWrapper);
+
+        // --- MAIN OUTER DRAG DIVIDER (ABSOLUTE DRAG TRACKING) ---
+        let startTopHeight = node.properties.topSectionHeight;
+
+        const mainOuterResizeDivider = createResizeDivider("Drag to resize Top Control Panel vs Prompt List Area", activeTheme.negBoxBorder || "#f472b6", (totalDy) => {
+            const maxTop = Math.max(100, container.clientHeight - 80);
+            let newTopHeight = Math.max(100, Math.min(maxTop, startTopHeight + totalDy));
+            topSectionWrapper.style.height = `${newTopHeight}px`;
+            node.properties.topSectionHeight = newTopHeight;
         });
-        container.appendChild(bottomResizeDivider);
+
+        mainOuterResizeDivider.addEventListener("mousedown", () => {
+            startTopHeight = topSectionWrapper.clientHeight;
+        });
+        mainOuterResizeDivider.addEventListener("touchstart", () => {
+            startTopHeight = topSectionWrapper.clientHeight;
+        });
+
+        container.appendChild(mainOuterResizeDivider);
+
+        // --- INPUT & ACTION ROW WRAPPER ---
+        const inputAreaWrapper = document.createElement("div");
+        inputAreaWrapper.style.display = "flex";
+        inputAreaWrapper.style.flexDirection = "column";
+        inputAreaWrapper.style.gap = "4px";
+        inputAreaWrapper.style.flexShrink = "0";
+        inputAreaWrapper.style.minHeight = "0";
 
         const actionBtnRow = document.createElement("div");
         actionBtnRow.style.display = "flex";
@@ -1947,7 +2016,6 @@ app.registerExtension({
         actionBtnRow.appendChild(updateBtn);
         actionBtnRow.appendChild(addBtn);
         actionBtnRow.appendChild(clearBtn);
-        container.appendChild(actionBtnRow);
 
         clearBtn.onclick = (e) => {
             if (e) e.stopPropagation();
@@ -2179,7 +2247,6 @@ app.registerExtension({
         metadataRow.appendChild(categoryDropdown);
         metadataRow.appendChild(sourceInput);
         metadataRow.appendChild(tagInput);
-        container.appendChild(metadataRow);
 
         const pipelineRow = document.createElement("div");
         pipelineRow.style.display = "flex";
@@ -2233,7 +2300,6 @@ app.registerExtension({
         pipelineRow.appendChild(modelDropdown);
         pipelineRow.appendChild(lorasInput);
         pipelineRow.appendChild(configInput);
-        container.appendChild(pipelineRow);
 
         function setItemCategory(catName) {
             const target = catName || "General";
@@ -2310,12 +2376,18 @@ app.registerExtension({
         searchRow.appendChild(searchInputWrapper);
         searchRow.appendChild(imageFilterSelect);
         searchRow.appendChild(favFilterBtn);
-        container.appendChild(searchRow);
 
+        inputAreaWrapper.appendChild(actionBtnRow);
+        inputAreaWrapper.appendChild(metadataRow);
+        inputAreaWrapper.appendChild(pipelineRow);
+        inputAreaWrapper.appendChild(searchRow);
+        container.appendChild(inputAreaWrapper);
+
+        // --- BOTTOM PROMPT LIST AREA ---
         const listContainer = document.createElement("div");
         listContainer.tabIndex = 0;
         listContainer.style.flex = "1 1 0px";
-        listContainer.style.minHeight = "60px";
+        listContainer.style.minHeight = "0";
         listContainer.style.overflowY = "scroll";
         listContainer.style.scrollbarWidth = "thin";
         listContainer.style.border = `1px solid ${activeTheme.border}`;
@@ -2462,7 +2534,6 @@ app.registerExtension({
             api.removeEventListener("rsl-auto-prompt-received", node._autoPromptListener);
         }
 
-        // --- ISOLATED AUTO-PROMPT LISTENER (HANDLES ADD & SELECT) ---
         node._autoPromptListener = async (e) => {
             if (!e.detail) return;
             if (String(e.detail.node_id) !== String(node.id)) return;
@@ -2544,7 +2615,6 @@ app.registerExtension({
             api.removeEventListener("rsl-database-refreshed", node._refreshListener);
         }
 
-        // --- UNTOUCHED WORKING REVERT FOR REMOTE UPDATE & DELETE HANDLER ---
         node._refreshListener = async (e) => {
             if (!e.detail) return;
 
@@ -2559,7 +2629,6 @@ app.registerExtension({
 
                 const masterRoot = node.properties.master_root || "";
 
-                // --- Ensure we await the fetch before doing any index lookups ---
                 const res = await api.fetchApi(`/prompt_tracker/get?db=${encodeURIComponent(currentDbName)}&master_root=${encodeURIComponent(masterRoot)}`);
                 localDb = await res.json();
                 await prefetchImagesAsBase64(localDb);
@@ -2570,7 +2639,6 @@ app.registerExtension({
                     if (foundIdx !== -1) {
                         selectedIndex = foundIdx;
                     } else if (action === "delete" && oldSelectedIndex !== null) {
-                        // --- DELETION FALLBACK RULE: Previous, else Next ---
                         if (localDb.length === 0) {
                             selectedIndex = null;
                             setActiveSelection("", "", null, false);
@@ -2619,7 +2687,6 @@ app.registerExtension({
                     }
                     setStatus(`Successfully completed (${action})`, false);
                 } else {
-                    // Remote action from another instance/machine
                     const shortId = targetId ? targetId.substring(0, 8) : "sync";
 
                     if (targetId && currentSelectedId && targetId === currentSelectedId && selectedIndex !== null && localDb[selectedIndex]) {
@@ -2908,13 +2975,11 @@ app.registerExtension({
             }
         };
 
-        // RSL: All instance properties, including unique session IDs like instanceUuid, must be created/initialized or overwritten here to prevent workflow template or clone collisions across instances and machines.
         node.onConfigure = async function (o) {
             if (o && o.properties) {
                 node.properties = Object.assign({}, node.properties, o.properties);
             }
 
-            // Unconditionally overwrite instanceUuid to ensure it is a completely unique session runtime identifier
             node.properties.instanceUuid = (typeof crypto !== 'undefined' && crypto.randomUUID)
                 ? crypto.randomUUID()
                 : 'rsl-' + Math.random().toString(36).substring(2, 9) + '-' + Math.floor(Math.random() * 100000);
@@ -2929,6 +2994,9 @@ app.registerExtension({
 
             if (node.properties?.nodeSize) {
                 this.setSize(node.properties.nodeSize);
+            }
+            if (node.properties?.topSectionHeight) {
+                topSectionWrapper.style.height = `${node.properties.topSectionHeight}px`;
             }
             if (node.properties?.promptBoxHeight) {
                 activePromptBox.style.height = `${node.properties.promptBoxHeight}px`;
