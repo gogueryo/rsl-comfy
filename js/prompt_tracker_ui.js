@@ -96,6 +96,32 @@ function createResizeDivider(title, accentColor, onResizeDelta) {
     return divider;
 }
 
+// Inject global forced scrollbar styles to ensure Mac and webview scrollbars are always visible
+const scrollbarStyleId = "rsl-forced-scrollbar-styles";
+if (!document.getElementById(scrollbarStyleId)) {
+    const styleEl = document.createElement("style");
+    styleEl.id = scrollbarStyleId;
+    styleEl.innerHTML = `
+        div::-webkit-scrollbar, textarea::-webkit-scrollbar {
+            width: 10px !important;
+            height: 10px !important;
+            display: block !important;
+        }
+        div::-webkit-scrollbar-track, textarea::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.3) !important;
+            border-radius: 4px !important;
+        }
+        div::-webkit-scrollbar-thumb, textarea::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.25) !important;
+            border-radius: 4px !important;
+        }
+        div::-webkit-scrollbar-thumb:hover, textarea::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.45) !important;
+        }
+    `;
+    document.head.appendChild(styleEl);
+}
+
 app.registerExtension({
     name: "RSL.PromptTrackerUI",
     async loadedGraphNode(node) {
@@ -903,8 +929,10 @@ app.registerExtension({
         styleInput(dirPathInput, activeTheme);
 
         const dirListContainer = document.createElement("div");
+        dirListContainer.tabIndex = 0; // Enable focus for keyboard arrow navigation
         dirListContainer.style.flex = "1";
-        dirListContainer.style.overflowY = "auto";
+        dirListContainer.style.overflowY = "scroll"; // Explicitly scrollable with visible scrollbars
+        dirListContainer.style.scrollbarWidth = "thin"; // Firefox support
         dirListContainer.style.border = `1px solid ${activeTheme.border}`;
         dirListContainer.style.borderRadius = "4px";
         dirListContainer.style.padding = "6px";
@@ -912,6 +940,7 @@ app.registerExtension({
         dirListContainer.style.display = "flex";
         dirListContainer.style.flexDirection = "column";
         dirListContainer.style.gap = "3px";
+        dirListContainer.style.outline = "none";
 
         const dirModalBtnGroup = document.createElement("div");
         dirModalBtnGroup.style.display = "flex";
@@ -938,6 +967,21 @@ app.registerExtension({
         container.appendChild(dirModalOverlay);
 
         let browsingPath = "";
+        let selectedDirIndex = 0;
+
+        function updateDirSelection() {
+            const children = Array.from(dirListContainer.children);
+            children.forEach((child, idx) => {
+                if (idx === selectedDirIndex) {
+                    child.style.backgroundColor = activeTheme.selectedRow || "#3730a3";
+                    child.style.fontWeight = "bold";
+                    child.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                } else {
+                    child.style.backgroundColor = "transparent";
+                    child.style.fontWeight = "normal";
+                }
+            });
+        }
 
         async function loadDirectory(targetPath) {
             try {
@@ -953,44 +997,76 @@ app.registerExtension({
                 browsingPath = data.current;
                 dirPathInput.value = browsingPath;
                 dirListContainer.innerHTML = "";
+                selectedDirIndex = 0;
 
-                if (!data.is_drive_list && browsingPath) {
-                    const parentRow = document.createElement("div");
-                    parentRow.innerText = "📁 .. (Parent Directory)";
-                    parentRow.style.padding = "6px 8px";
-                    parentRow.style.cursor = "pointer";
-                    parentRow.style.borderRadius = "4px";
-                    parentRow.style.color = "#facc15";
-                    parentRow.style.fontWeight = "bold";
-                    parentRow.onmouseenter = () => parentRow.style.backgroundColor = activeTheme.selectedRow || "#3730a3";
-                    parentRow.onmouseleave = () => parentRow.style.backgroundColor = "transparent";
-                    parentRow.onclick = () => {
-                        const parent = browsingPath.substring(0, browsingPath.lastIndexOf(window.navigator.platform.includes("Win") ? "\\" : "/"));
-                        loadDirectory(parent);
-                    };
-                    dirListContainer.appendChild(parentRow);
-                }
-
-                data.dirs.forEach(dirName => {
+                const addDirItem = (text, fullSubPath, isParent = false) => {
                     const row = document.createElement("div");
-                    row.innerText = `📁 ${dirName}`;
+                    row.innerText = text;
                     row.style.padding = "6px 8px";
                     row.style.cursor = "pointer";
                     row.style.borderRadius = "4px";
                     row.style.fontSize = `${promptFontSize}px`;
-                    row.onmouseenter = () => row.style.backgroundColor = activeTheme.selectedRow || "#3730a3";
-                    row.onmouseleave = () => row.style.backgroundColor = "transparent";
+                    if (isParent) {
+                        row.style.color = "#facc15";
+                        row.style.fontWeight = "bold";
+                    }
 
-                    const fullSubPath = data.is_drive_list ? dirName : (browsingPath.endsWith("/") || browsingPath.endsWith("\\") ? browsingPath + dirName : browsingPath + (window.navigator.platform.includes("Win") ? "\\" : "/") + dirName);
+                    row.onmouseenter = () => {
+                        row.style.backgroundColor = activeTheme.selectedRow || "#3730a3";
+                        selectedDirIndex = Array.from(dirListContainer.children).indexOf(row);
+                        updateDirSelection();
+                    };
+                    row.onmouseleave = () => {
+                        if (Array.from(dirListContainer.children).indexOf(row) !== selectedDirIndex) {
+                            row.style.backgroundColor = "transparent";
+                        }
+                    };
 
                     row.onclick = () => loadDirectory(fullSubPath);
                     row.ondblclick = () => loadDirectory(fullSubPath);
                     dirListContainer.appendChild(row);
+                };
+
+                if (!data.is_drive_list && browsingPath) {
+                    const parent = browsingPath.substring(0, browsingPath.lastIndexOf(window.navigator.platform.includes("Win") ? "\\" : "/"));
+                    addDirItem("📁 .. (Parent Directory)", parent || (window.navigator.platform.includes("Win") ? "C:\\" : "/"), true);
+                }
+
+                data.dirs.forEach(dirName => {
+                    const fullSubPath = data.is_drive_list ? dirName : (browsingPath.endsWith("/") || browsingPath.endsWith("\\") ? browsingPath + dirName : browsingPath + (window.navigator.platform.includes("Win") ? "\\" : "/") + dirName);
+                    addDirItem(`📁 ${dirName}`, fullSubPath, false);
                 });
+
+                updateDirSelection();
+                dirListContainer.focus();
             } catch (err) {
                 setStatus("Failed to load directory", true);
             }
         }
+
+        // --- Arrow key navigation & Enter support inside directory list ---
+        dirListContainer.onkeydown = (e) => {
+            const children = Array.from(dirListContainer.children);
+            if (children.length === 0) return;
+
+            if (e.key === "ArrowDown") {
+                e.preventDefault();
+                e.stopPropagation();
+                selectedDirIndex = Math.min(children.length - 1, selectedDirIndex + 1);
+                updateDirSelection();
+            } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                e.stopPropagation();
+                selectedDirIndex = Math.max(0, selectedDirIndex - 1);
+                updateDirSelection();
+            } else if (e.key === "Enter") {
+                e.preventDefault();
+                e.stopPropagation();
+                if (children[selectedDirIndex]) {
+                    children[selectedDirIndex].click();
+                }
+            }
+        };
 
         drivesBtn.onclick = (e) => {
             e.stopPropagation();
@@ -2241,6 +2317,7 @@ app.registerExtension({
         listContainer.style.flex = "1 1 0px";
         listContainer.style.minHeight = "60px";
         listContainer.style.overflowY = "scroll";
+        listContainer.style.scrollbarWidth = "thin";
         listContainer.style.border = `1px solid ${activeTheme.border}`;
         listContainer.style.borderRadius = "4px";
         listContainer.style.padding = "4px";
