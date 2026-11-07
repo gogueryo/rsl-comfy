@@ -300,6 +300,8 @@ app.registerExtension({
                 exampleThumbImg.src = "";
                 exampleThumbImg.style.display = "none";
                 examplePlaceholder.style.display = "block";
+                if (typeof resolutionLabel !== 'undefined') resolutionLabel.innerText = "";
+                if (typeof lightboxResolutionBadge !== 'undefined') lightboxResolutionBadge.innerText = "";
             }
 
             embedCheck.checked = isEmbedded;
@@ -309,7 +311,9 @@ app.registerExtension({
             lightboxEmbedLabelText.innerText = isEmbedded ? "Embed (ON)" : "Embed (OFF)";
 
             const modelInfo = currentImageInfo.render_model || activeSelectedModel || "undefined";
-            exampleContainer.title = `Image Info (Double-click to preview):\nModel: ${modelInfo}\nSteps: ${currentImageInfo.steps}\nCFG: ${currentImageInfo.cfg}\nDenoise: ${currentImageInfo.denoise}\nSeed: ${currentImageInfo.seed}`;
+            const resStr = (currentImageInfo.width && currentImageInfo.height) ? `${currentImageInfo.width}×${currentImageInfo.height}` : "Unknown";
+            
+            exampleContainer.title = `Image Info (Double-click to preview):\nResolution: ${resStr}\nModel: ${modelInfo}\nSteps: ${currentImageInfo.steps}\nCFG: ${currentImageInfo.cfg}\nDenoise: ${currentImageInfo.denoise}\nSeed: ${currentImageInfo.seed}`;
             updateBackendWidgets();
         }
 
@@ -419,6 +423,12 @@ app.registerExtension({
         lightboxIndexBadge.style.fontSize = "10px";
         lightboxIndexBadge.style.color = activeTheme.blueBoxTitle || "#38bdf8";
 
+        const lightboxResolutionBadge = document.createElement("div");
+        lightboxResolutionBadge.innerText = "";
+        lightboxResolutionBadge.style.fontWeight = "bold";
+        lightboxResolutionBadge.style.fontSize = "10px";
+        lightboxResolutionBadge.style.color = "#4ade80";
+
         const svgCcw = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
         const svgCw = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>';
 
@@ -439,6 +449,7 @@ app.registerExtension({
         lightboxRotateCwBtn.style.padding = "3px 6px";
 
         lightboxCenterGroup.appendChild(lightboxIndexBadge);
+        lightboxCenterGroup.appendChild(lightboxResolutionBadge);
         lightboxCenterGroup.appendChild(lightboxRotateCcwBtn);
         lightboxCenterGroup.appendChild(lightboxRotateCwBtn);
 
@@ -492,6 +503,17 @@ app.registerExtension({
         lightboxImg.style.transition = "transform 0.2s ease, opacity 0.2s ease, filter 0.2s ease";
         lightboxImg.style.boxShadow = "0 8px 24px rgba(0,0,0,0.8)";
         lightboxImg.style.pointerEvents = "none";
+
+        lightboxImg.onload = () => {
+            if (lightboxImg.naturalWidth && lightboxImg.naturalHeight) {
+                const resStr = `${lightboxImg.naturalWidth}×${lightboxImg.naturalHeight}`;
+                lightboxResolutionBadge.innerText = resStr;
+                currentImageInfo.width = lightboxImg.naturalWidth;
+                currentImageInfo.height = lightboxImg.naturalHeight;
+            } else {
+                lightboxResolutionBadge.innerText = "";
+            }
+        };
 
         const lightboxHud = document.createElement("div");
         lightboxHud.style.position = "absolute";
@@ -1746,6 +1768,16 @@ app.registerExtension({
         exampleCol.style.alignItems = "center";
         exampleCol.style.flexShrink = "0";
 
+        // Resolution label displayed right above the thumbnail preview
+        const resolutionLabel = document.createElement("div");
+        resolutionLabel.style.fontSize = "9px";
+        resolutionLabel.style.color = activeTheme.blueBoxTitle || "#38bdf8";
+        resolutionLabel.style.fontWeight = "bold";
+        resolutionLabel.style.height = "12px";
+        resolutionLabel.style.textAlign = "center";
+        resolutionLabel.innerText = "";
+        exampleCol.appendChild(resolutionLabel);
+
         const exampleContainer = document.createElement("div");
         exampleContainer.title = "Image Info (Double-click to preview): No image loaded";
         exampleContainer.style.width = "96px";
@@ -1773,6 +1805,17 @@ app.registerExtension({
         exampleThumbImg.style.height = "100%";
         exampleThumbImg.style.objectFit = "cover";
         exampleThumbImg.style.display = "none";
+
+        exampleThumbImg.onload = () => {
+            if (exampleThumbImg.naturalWidth && exampleThumbImg.naturalHeight) {
+                const resStr = `${exampleThumbImg.naturalWidth}×${exampleThumbImg.naturalHeight}`;
+                resolutionLabel.innerText = resStr;
+                currentImageInfo.width = exampleThumbImg.naturalWidth;
+                currentImageInfo.height = exampleThumbImg.naturalHeight;
+            } else {
+                resolutionLabel.innerText = "";
+            }
+        };
 
         exampleContainer.appendChild(examplePlaceholder);
         exampleContainer.appendChild(exampleThumbImg);
@@ -1907,7 +1950,6 @@ app.registerExtension({
             node.properties.negativeBoxHeight = newNegHeight;
         });
 
-        // Capture starting heights when mouse goes down on inner divider
         innerResizeDivider.addEventListener("mousedown", () => {
             startPosHeight = activePromptBox.clientHeight;
             startNegHeight = activeNegativeBox.clientHeight;
