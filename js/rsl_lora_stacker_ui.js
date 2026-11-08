@@ -7,18 +7,12 @@ app.registerExtension({
     if (node.comfyClass !== "RSLLoraStackerNode") return;
 
     try {
-      // Find the native loras_json widget (must be in "required" or "optional" on the Python side)
+      // Find the native loras_json widget (must be in "required" or "optional")
       let jsonWidget = node.widgets ? node.widgets.find(w => w.name === "loras_json") : null;
       if (!jsonWidget) {
-        console.warn("[RSL Stacker] loras_json widget not found. Make sure it is defined in required/optional, not hidden.");
+        console.warn("[RSL Stacker] loras_json widget not found. Define it in required/optional, not hidden.");
         return;
       }
-
-      // Hide the native text widget visually but keep it serializable
-      jsonWidget.type = "string";
-      jsonWidget.computeSize = () => [0, -4];
-      jsonWidget.draw = function () { };
-      jsonWidget.serialize = true;
 
       // State
       let loras = [];
@@ -37,6 +31,14 @@ app.registerExtension({
       }
 
       loadStateFromWidget();
+
+      // Make the native widget always return the latest state at serialize time
+      jsonWidget.serialize = true;
+      jsonWidget.serializeValue = () => JSON.stringify(loras);
+
+      // Hide the native text widget visually
+      jsonWidget.computeSize = () => [0, -4];
+      jsonWidget.draw = () => { };
 
       // Restoration hook
       const origOnConfigure = node.onConfigure;
@@ -181,23 +183,20 @@ app.registerExtension({
         headerRow.style.display = loras.length === 0 ? "none" : "flex";
       }
 
-      // --- COMMIT (persists to native widget) ---
+      // --- COMMIT ---
       function commit() {
         const newValue = JSON.stringify(loras);
-
         if (jsonWidget) {
           jsonWidget.value = newValue;
           if (typeof jsonWidget.callback === "function") {
-            jsonWidget.callback(newValue, app.canvas, node, jsonWidget, null);
+            jsonWidget.callback(newValue);
           }
         }
-
         node.setDirtyCanvas(true, true);
         if (app.graph) {
           app.graph.setDirtyCanvas(true, true);
           app.graph.change();
         }
-
         updateUIState();
       }
 
@@ -420,8 +419,8 @@ app.registerExtension({
         });
       };
 
-      // Add DOM widget with proper get/set so it participates in serialization
-      const domWidget = node.addDOMWidget("lora_stacker_panel", "custom", container, {
+      // DOM widget is visual only — do not serialize it
+      node.addDOMWidget("lora_stacker_panel", "custom", container, {
         getValue() {
           return JSON.stringify(loras);
         },
@@ -435,7 +434,7 @@ app.registerExtension({
             }
           } catch (e) { }
         },
-        serialize: true,
+        serialize: false,
       });
 
       renderList();
