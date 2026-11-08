@@ -17,6 +17,8 @@ from .rsl_crop_node import RSLCropNode
 from .yaml_viewer_node import DatasetYAMLViewer
 from .directory_selector import RSLDirectorySelector
 from .rsl_draggable_preview import RSLDraggablePreviewNode
+from .rsl_lora_loader import RSLLoraLoader
+from .rsl_lora_stacker import RSLLoraStackerNode
 
 NODE_CLASS_MAPPINGS = {
     "LoraDescriptionEditor": LoraDescriptionEditorNode,
@@ -39,6 +41,8 @@ NODE_CLASS_MAPPINGS = {
     "DatasetYAMLViewer": DatasetYAMLViewer,
     "RSLDirectorySelector": RSLDirectorySelector,
     "RSLDraggablePreviewNode": RSLDraggablePreviewNode,
+    "RSLLoraLoader": RSLLoraLoader,
+    "RSLLoraStackerNode": RSLLoraStackerNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -62,6 +66,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DatasetYAMLViewer": "rsl Dataset YAML Config Viewer",
     "RSLDirectorySelector": "rsl Directory Selector",
     "RSLDraggablePreviewNode": "rsl Draggable Preview Image",
+    "RSLLoraLoader": "rsl LoRA Loader (with Meta Output)",
+    "RSLLoraStackerNode": "rsl LoRA Stacker",
 }
 
 WEB_DIRECTORY = "js"
