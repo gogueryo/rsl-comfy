@@ -169,11 +169,13 @@ app.registerExtension({
 
         let localDb = [];
         let selectedIndex = null;
+        let previewCurrentPos = null;
         let currentImageInfo = { image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined", lora_info: "" };
         let autoCaptureState = true;
         let currentDbName = node.properties.selected_database;
         let searchFilterQuery = "";
         let filterFavoritesOnly = false;
+        let previewFavsOnly = false;
         let imageFilterMode = "all";
         let promptFontSize = node.properties.promptFontSize;
         let currentRotationAngle = 0;
@@ -422,13 +424,13 @@ app.registerExtension({
                 activeStarBtn.style.display = "inline-block";
 
                 if (typeof lightboxStarBtn !== 'undefined') {
-                    lightboxStarBtn.innerText = isStarred ? "★ Favorited" : "☆ Favorite";
+                    lightboxStarBtn.innerText = isStarred ? "★ Favorited" : "☆ Favorite (Space)";
                     lightboxStarBtn.style.color = isStarred ? "#facc15" : activeTheme.textPrimary;
                 }
             } else {
                 activeStarBtn.style.display = "none";
                 if (typeof lightboxStarBtn !== 'undefined') {
-                    lightboxStarBtn.innerText = "☆ Favorite";
+                    lightboxStarBtn.innerText = "☆ Favorite (Space)";
                     lightboxStarBtn.style.color = activeTheme.textPrimary;
                 }
             }
@@ -490,6 +492,9 @@ app.registerExtension({
         lightboxOverlay.style.boxSizing = "border-box";
         lightboxOverlay.style.outline = "none";
 
+        lightboxOverlay.addEventListener("pointerdown", (e) => e.stopPropagation());
+        lightboxOverlay.addEventListener("wheel", (e) => e.stopPropagation());
+
         let isFullscreen = false;
 
         function setFullscreen(enabled) {
@@ -518,6 +523,7 @@ app.registerExtension({
         const closeLightbox = () => {
             setFullscreen(false);
             lightboxOverlay.style.display = "none";
+            previewCurrentPos = null;
         };
 
         const lightboxHeader = document.createElement("div");
@@ -529,7 +535,7 @@ app.registerExtension({
         lightboxHeader.style.boxSizing = "border-box";
 
         const lightboxTitle = document.createElement("div");
-        lightboxTitle.innerText = "🖼️ Preview & Editable Metadata HUD (Draggable)";
+        lightboxTitle.innerText = "🖼️ Preview & Editable Metadata HUD";
         lightboxTitle.style.fontWeight = "bold";
         lightboxTitle.style.fontSize = "11px";
         lightboxTitle.style.color = "#facc15";
@@ -586,6 +592,24 @@ app.registerExtension({
         lightboxStarBtn.style.padding = "2px 6px";
         lightboxStarBtn.style.fontWeight = "bold";
 
+        const lightboxFavFilterBtn = document.createElement("button");
+        lightboxFavFilterBtn.innerText = "☆ Favs Only";
+        styleButton(lightboxFavFilterBtn, false, activeTheme);
+        lightboxFavFilterBtn.style.padding = "2px 6px";
+        lightboxFavFilterBtn.style.fontWeight = "bold";
+
+        lightboxFavFilterBtn.onclick = (e) => {
+            e.stopPropagation();
+            previewFavsOnly = !previewFavsOnly;
+            lightboxFavFilterBtn.innerText = previewFavsOnly ? "★ Favs Only" : "☆ Favs Only";
+            lightboxFavFilterBtn.style.color = previewFavsOnly ? "#facc15" : activeTheme.textPrimary;
+            previewCurrentPos = null;
+
+            if (previewFavsOnly && selectedIndex !== null && localDb[selectedIndex] && !localDb[selectedIndex].starred) {
+                navigateVisibleItems(1);
+            }
+        };
+
         const toggleFavoriteAction = async () => {
             if (selectedIndex !== null && localDb[selectedIndex]) {
                 const targetIndex = selectedIndex;
@@ -593,13 +617,10 @@ app.registerExtension({
                 const newStarredState = !item.starred;
                 item.starred = newStarredState;
 
-                // Immediate UI update
                 updateStarButtonState();
                 renderList();
 
-                // Show green border feedback until persistence finishes
-                exampleContainer.style.border = "2px solid #22c55e";
-                lightboxImg.style.border = "2px solid #22c55e";
+                lightboxImg.style.border = newStarredState ? "1.5px solid #22c55e" : "none";
 
                 setStatus(newStarredState ? "Favorited prompt (persisting...)" : "Unfavorited prompt (persisting...)");
 
@@ -612,9 +633,6 @@ app.registerExtension({
                 } catch (err) {
                     setStatus("Failed to persist favorite state", true);
                 } finally {
-                    // Reset thumbnail borders
-                    exampleContainer.style.border = `1.5px dashed ${activeTheme.blueBoxBorder}`;
-                    lightboxImg.style.border = "none";
                     lightboxImg.style.boxShadow = "0 8px 24px rgba(0,0,0,0.8)";
                 }
             }
@@ -645,6 +663,7 @@ app.registerExtension({
         styleButton(lightboxCloseBtn, true, activeTheme);
 
         lightboxHeaderBtnGroup.appendChild(lightboxStarBtn);
+        lightboxHeaderBtnGroup.appendChild(lightboxFavFilterBtn);
         lightboxHeaderBtnGroup.appendChild(lightboxFullscreenBtn);
         lightboxHeaderBtnGroup.appendChild(lightboxHudToggleBtn);
         lightboxHeaderBtnGroup.appendChild(lightboxCloseBtn);
@@ -878,74 +897,73 @@ app.registerExtension({
         lightboxEmbedLabel.appendChild(lightboxEmbedLabelText);
 
         const updateActiveBtn = document.createElement("button");
-        updateActiveBtn.innerText = "💾 Save/Update Prompt & Image";
+        updateActiveBtn.innerText = "💾 Save/Update Prompt & Image (S)";
         styleButton(updateActiveBtn, false, activeTheme);
         updateActiveBtn.style.fontWeight = "bold";
 
         const lightboxDeleteBtn = document.createElement("button");
-        lightboxDeleteBtn.innerText = "🗑️ Delete";
+        lightboxDeleteBtn.innerText = "🗑️ Delete (D)";
         styleButton(lightboxDeleteBtn, true, activeTheme);
         lightboxDeleteBtn.style.fontWeight = "bold";
 
-        lightboxDeleteBtn.onclick = async (e) => {
-            e.stopPropagation();
+        const executeLightboxDelete = async () => {
             if (selectedIndex === null || !localDb[selectedIndex]) return;
 
             const targetIndex = selectedIndex;
             const currentItem = localDb[targetIndex];
 
-            const del = async () => {
-                lightboxImg.style.opacity = "0.7";
-                lightboxImg.style.filter = "brightness(0.5)";
+            lightboxImg.style.opacity = "0.7";
+            lightboxImg.style.filter = "brightness(0.5)";
 
-                const res = await api.fetchApi("/prompt_tracker/delete", {
-                    method: "POST",
-                    body: JSON.stringify({
-                        db: currentDbName,
-                        id: currentItem.id,
-                        index: targetIndex,
-                        master_root: node.properties.master_root,
-                        instance_uuid: getInstanceUuid()
-                    })
-                });
-                const data = await res.json();
-                if (data.status === "success") {
-                    localDb = data.db;
-                    await prefetchImagesAsBase64(localDb);
-                    updateCategoryDropdowns();
-                    renderList();
+            const res = await api.fetchApi("/prompt_tracker/delete", {
+                method: "POST",
+                body: JSON.stringify({
+                    db: currentDbName,
+                    id: currentItem.id,
+                    index: targetIndex,
+                    master_root: node.properties.master_root,
+                    instance_uuid: getInstanceUuid()
+                })
+            });
+            const data = await res.json();
+            if (data.status === "success") {
+                localDb = data.db;
+                await prefetchImagesAsBase64(localDb);
+                updateCategoryDropdowns();
+                renderList();
 
-                    const visible = getVisibleRows();
-                    if (visible.length > 0) {
-                        let nextVizIdx = visible.findIndex(r => r.originalIndex >= targetIndex);
-                        if (nextVizIdx === -1) nextVizIdx = visible.length - 1;
-                        selectItemByIndex(nextVizIdx, visible);
+                const visible = getVisibleRows();
+                if (visible.length > 0) {
+                    let nextVizIdx = visible.findIndex(r => r.originalIndex >= targetIndex);
+                    if (nextVizIdx === -1) nextVizIdx = visible.length - 1;
+                    selectItemByIndex(nextVizIdx, visible);
 
-                        if (currentImageInfo.image) {
-                            lightboxImg.src = getProxiedImageUrl(currentImageInfo.image);
-                        } else {
-                            lightboxImg.src = "";
-                        }
-                        applyRotation(0, true);
-                        updateLightboxHudFields();
-
-                        lightboxImg.style.opacity = "1";
-                        lightboxImg.style.filter = "none";
-                        lightboxOverlay.focus();
+                    if (currentImageInfo.image) {
+                        lightboxImg.src = getProxiedImageUrl(currentImageInfo.image);
+                        const item = localDb[selectedIndex];
+                        lightboxImg.style.border = (item && item.starred) ? "1.5px solid #22c55e" : "none";
                     } else {
-                        selectedIndex = null;
-                        setActiveSelection("", "", null, false);
-                        closeLightbox();
+                        lightboxImg.src = "";
+                        lightboxImg.style.border = "none";
                     }
-                    setStatus(`Deleted prompt #${targetIndex + 1}`);
-                }
-            };
+                    applyRotation(0, true);
+                    updateLightboxHudFields();
 
-            if (e.shiftKey) {
-                await del();
-            } else {
-                showThemedModal(`Delete prompt #${targetIndex + 1}?`, "", null, del, false);
+                    lightboxImg.style.opacity = "1";
+                    lightboxImg.style.filter = "none";
+                    lightboxOverlay.focus();
+                } else {
+                    selectedIndex = null;
+                    setActiveSelection("", "", null, false);
+                    closeLightbox();
+                }
+                setStatus(`Deleted prompt #${targetIndex + 1}`);
             }
+        };
+
+        lightboxDeleteBtn.onclick = async (e) => {
+            e.stopPropagation();
+            await executeLightboxDelete();
         };
 
         lightboxRightActionGroup.appendChild(lightboxEmbedLabel);
@@ -994,8 +1012,13 @@ app.registerExtension({
                 lightboxImg.src = getProxiedImageUrl(imgUrl);
                 lightboxImg.style.opacity = "1";
                 lightboxImg.style.filter = "none";
+
+                const item = selectedIndex !== null ? localDb[selectedIndex] : null;
+                lightboxImg.style.border = (item && item.starred) ? "1.5px solid #22c55e" : "none";
+
                 applyRotation(0, true);
                 updateLightboxHudFields();
+                previewCurrentPos = null;
                 lightboxOverlay.style.display = "flex";
                 lightboxOverlay.focus();
                 setStatus("Opened preview lightbox HUD");
@@ -1005,21 +1028,40 @@ app.registerExtension({
         }
 
         function navigateVisibleItems(direction) {
-            const visible = getVisibleRows();
-            if (visible.length === 0) return;
-
-            let currentIdx = visible.findIndex(r => r.originalIndex === selectedIndex);
-            let nextIdx = 0;
-            if (currentIdx !== -1) {
-                nextIdx = (currentIdx + direction + visible.length) % visible.length;
+            let visible = getVisibleRows();
+            if (previewFavsOnly) {
+                visible = visible.filter(r => r.item.starred);
             }
 
+            if (visible.length === 0) {
+                setStatus("No favorite items found in preview", true);
+                return;
+            }
+
+            let currentIdx = previewCurrentPos;
+            if (currentIdx === null || currentIdx === undefined) {
+                currentIdx = visible.findIndex(r => r.originalIndex === selectedIndex);
+            }
+
+            let nextIdx = 0;
+            if (currentIdx !== -1 && currentIdx !== null) {
+                nextIdx = (currentIdx + direction + visible.length) % visible.length;
+            } else {
+                nextIdx = 0;
+            }
+
+            previewCurrentPos = nextIdx;
             selectItemByIndex(nextIdx, visible);
+
             if (currentImageInfo.image) {
                 lightboxImg.src = getProxiedImageUrl(currentImageInfo.image);
             } else {
                 lightboxImg.src = "";
             }
+
+            const item = selectedIndex !== null ? localDb[selectedIndex] : null;
+            lightboxImg.style.border = (item && item.starred) ? "1.5px solid #22c55e" : "none";
+
             applyRotation(0, true);
             updateLightboxHudFields();
         }
@@ -1101,6 +1143,9 @@ app.registerExtension({
                 lightboxImg.src = getProxiedImageUrl(currentImageInfo.image);
             }
 
+            const item = selectedIndex !== null ? localDb[selectedIndex] : null;
+            lightboxImg.style.border = (item && item.starred) ? "1.5px solid #22c55e" : "none";
+
             setImageInfo(currentImageInfo, embedCheck.checked);
             updateLightboxHudFields();
             await fetchAndRender();
@@ -1121,6 +1166,14 @@ app.registerExtension({
                 e.stopPropagation();
                 if (e.shiftKey) applyRotation(90);
                 else navigateVisibleItems(1);
+            } else if (e.key.toLowerCase() === "d") {
+                e.preventDefault();
+                e.stopPropagation();
+                await executeLightboxDelete();
+            } else if (e.key.toLowerCase() === "s") {
+                e.preventDefault();
+                e.stopPropagation();
+                await updateActiveBtn.click();
             } else if (e.key === " " || e.code === "Space") {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1213,7 +1266,7 @@ app.registerExtension({
         dirModalFooterRow.style.marginTop = "4px";
 
         const exportFavsLabel = document.createElement("label");
-        exportFavsLabel.style.display = "none"; // Initially hidden, shown during export mode
+        exportFavsLabel.style.display = "none";
         exportFavsLabel.style.alignItems = "center";
         exportFavsLabel.style.gap = "6px";
         exportFavsLabel.style.fontSize = "11px";
@@ -1501,7 +1554,6 @@ app.registerExtension({
                 modalInput.value = defaultVal || "";
             }
 
-            // Ensure modal is visible in lightbox/fullscreen mode
             if (lightboxOverlay.style.display === "flex") {
                 lightboxOverlay.appendChild(modalOverlay);
             } else {
@@ -2380,6 +2432,7 @@ app.registerExtension({
             tagInput.value = "";
             setImageInfo(currentImageInfo, false);
             selectedIndex = null;
+            previewCurrentPos = null;
             setActiveSelection("", "", null, false);
             updateBackendWidgets();
             renderList();
@@ -3052,10 +3105,9 @@ app.registerExtension({
                 const action = e.detail.action;
                 const targetId = e.detail.item_id;
                 const savedScrollTop = listContainer.scrollTop;
+                const isLightboxOpen = lightboxOverlay.style.display === "flex";
 
                 const currentSelectedId = (selectedIndex !== null && localDb[selectedIndex]) ? localDb[selectedIndex].id : null;
-                const oldSelectedIndex = selectedIndex;
-
                 const masterRoot = node.properties.master_root || "";
 
                 const res = await api.fetchApi(`/prompt_tracker/get?db=${encodeURIComponent(currentDbName)}&master_root=${encodeURIComponent(masterRoot)}`);
@@ -3063,29 +3115,20 @@ app.registerExtension({
                 await prefetchImagesAsBase64(localDb);
                 updateCategoryDropdowns();
 
+                if (isLightboxOpen) {
+                    if (currentSelectedId) {
+                        const foundIdx = localDb.findIndex(item => item.id === currentSelectedId);
+                        if (foundIdx !== -1) {
+                            selectedIndex = foundIdx;
+                        }
+                    }
+                    return;
+                }
+
                 if (currentSelectedId) {
                     const foundIdx = localDb.findIndex(item => item.id === currentSelectedId);
                     if (foundIdx !== -1) {
                         selectedIndex = foundIdx;
-                    } else if (action === "delete" && oldSelectedIndex !== null) {
-                        if (localDb.length === 0) {
-                            selectedIndex = null;
-                            setActiveSelection("", "", null, false);
-                        } else {
-                            let targetIdx = oldSelectedIndex > 0 ? oldSelectedIndex - 1 : 0;
-                            selectedIndex = Math.min(targetIdx, localDb.length - 1);
-                            const newItem = localDb[selectedIndex];
-                            const isEmb = newItem.is_embedded !== undefined ? newItem.is_embedded : false;
-                            setItemCategory(newItem.category || "General");
-                            setModelValue(newItem.render_model || "undefined");
-                            setLoraInfo(newItem.lora_info || newItem.image_info?.lora_info || "");
-                            configInput.value = newItem.config || "";
-                            sourceInput.value = newItem.source || "";
-                            tagInput.value = newItem.tags || "";
-                            setActiveSelection(newItem.prompt || "", newItem.negative || "", newItem.image_info || null, isEmb);
-                        }
-                    } else {
-                        selectedIndex = null;
                     }
                 }
 
@@ -3093,43 +3136,9 @@ app.registerExtension({
                 listContainer.scrollTop = savedScrollTop;
 
                 if (isInitiator) {
-                    if ((action === "add" || action === "update") && targetId) {
-                        const targetIdx = localDb.findIndex(item => item.id === targetId);
-                        if (targetIdx !== -1) {
-                            const visible = getVisibleRows();
-                            const vizPos = visible.findIndex(r => r.originalIndex === targetIdx);
-                            if (vizPos !== -1) {
-                                selectItemByIndex(vizPos, visible);
-                            } else {
-                                selectedIndex = targetIdx;
-                                const newItem = localDb[targetIdx];
-                                const isEmb = newItem.is_embedded !== undefined ? newItem.is_embedded : false;
-                                setItemCategory(newItem.category || "General");
-                                setModelValue(newItem.render_model || "undefined");
-                                setLoraInfo(newItem.lora_info || newItem.image_info?.lora_info || "");
-                                configInput.value = newItem.config || "";
-                                sourceInput.value = newItem.source || "";
-                                tagInput.value = newItem.tags || "";
-                                setActiveSelection(newItem.prompt || "", newItem.negative || "", newItem.image_info || null, isEmb);
-                            }
-                        }
-                    }
                     setStatus(`Successfully completed (${action})`, false);
                 } else {
                     const shortId = targetId ? targetId.substring(0, 8) : "sync";
-
-                    if (targetId && currentSelectedId && targetId === currentSelectedId && selectedIndex !== null && localDb[selectedIndex]) {
-                        const updatedItem = localDb[selectedIndex];
-                        const isEmb = updatedItem.is_embedded !== undefined ? updatedItem.is_embedded : false;
-                        setItemCategory(updatedItem.category || "General");
-                        setModelValue(updatedItem.render_model || "undefined");
-                        setLoraInfo(updatedItem.lora_info || updatedItem.image_info?.lora_info || "");
-                        configInput.value = updatedItem.config || "";
-                        sourceInput.value = updatedItem.source || "";
-                        tagInput.value = updatedItem.tags || "";
-                        setActiveSelection(updatedItem.prompt || "", updatedItem.negative || "", updatedItem.image_info || null, isEmb);
-                    }
-
                     setStatus(`remote action: data updated for item #${shortId}`, false);
                 }
                 updateCounters(activeTextarea.value);
