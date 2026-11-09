@@ -16,6 +16,7 @@ DATA_DIR = os.path.join(CURRENT_DIR, "data", "prompts")
 CONFIG_FILE = os.path.join(CURRENT_DIR, "master_config.json")
 os.makedirs(DATA_DIR, exist_ok=True)
 
+
 def get_master_dir():
     if os.path.exists(CONFIG_FILE):
         try:
@@ -28,9 +29,11 @@ def get_master_dir():
             pass
     return DATA_DIR
 
+
 def set_master_dir(path):
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump({"master_dir": path}, f, indent=2)
+
 
 def get_active_data_dir():
     master = get_master_dir()
@@ -39,6 +42,7 @@ def get_active_data_dir():
         return master
     os.makedirs(DATA_DIR, exist_ok=True)
     return DATA_DIR
+
 
 def get_target_data_dir(source):
     master_root = None
@@ -54,16 +58,29 @@ def get_target_data_dir(source):
         return master_root
     return get_active_data_dir()
 
+
 def get_images_dir(active_dir=None):
-    base = active_dir if (active_dir and os.path.isdir(active_dir)) else get_active_data_dir()
+    base = (
+        active_dir
+        if (active_dir and os.path.isdir(active_dir))
+        else get_active_data_dir()
+    )
     img_dir = os.path.join(base, "images")
     os.makedirs(img_dir, exist_ok=True)
     return img_dir
 
+
 def get_db_path(db_name, active_dir=None):
-    base = active_dir if (active_dir and os.path.isdir(active_dir)) else get_active_data_dir()
-    safe_name = "".join(c for c in db_name if c.isalnum() or c in ('_', '-')) or "prompts_db"
+    base = (
+        active_dir
+        if (active_dir and os.path.isdir(active_dir))
+        else get_active_data_dir()
+    )
+    safe_name = (
+        "".join(c for c in db_name if c.isalnum() or c in ("_", "-")) or "prompts_db"
+    )
     return os.path.join(base, f"{safe_name}.json")
+
 
 def load_db_file(db_name, active_dir=None):
     path = get_db_path(db_name, active_dir)
@@ -79,13 +96,17 @@ def load_db_file(db_name, active_dir=None):
             return []
     return []
 
+
 def save_db_file(db_name, data, active_dir=None):
     path = get_db_path(db_name, active_dir)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-def broadcast_database_refresh(db_name, master_root, action, item_id=None, instance_uuid=None):
+
+def broadcast_database_refresh(
+    db_name, master_root, action, item_id=None, instance_uuid=None
+):
     try:
         PromptServer.instance.send_sync(
             "rsl-database-refreshed",
@@ -94,11 +115,12 @@ def broadcast_database_refresh(db_name, master_root, action, item_id=None, insta
                 "master_root": master_root or "",
                 "action": action,
                 "item_id": item_id,
-                "instance_uuid": str(instance_uuid) if instance_uuid else ""
-            }
+                "instance_uuid": str(instance_uuid) if instance_uuid else "",
+            },
         )
     except Exception as e:
         print(f"[PromptTracker] Failed to broadcast WebSocket event: {e}")
+
 
 def extract_image_bytes(img_val, active_dir=None, source_master_root=None):
     try:
@@ -109,36 +131,43 @@ def extract_image_bytes(img_val, active_dir=None, source_master_root=None):
             return base64.b64decode(encoded)
         elif "/view?filename=" in img_val:
             from urllib.parse import parse_qs, urlparse
+
             parsed = urlparse(img_val)
             qs = parse_qs(parsed.query)
             fname = qs.get("filename", [""])[0]
             ftype = qs.get("type", ["temp"])[0]
             subfolder = qs.get("subfolder", [""])[0]
-            
-            target_dir = folder_paths.get_temp_directory() if ftype == "temp" else folder_paths.get_output_directory()
+
+            target_dir = (
+                folder_paths.get_temp_directory()
+                if ftype == "temp"
+                else folder_paths.get_output_directory()
+            )
             full_p = os.path.join(target_dir, subfolder, fname)
             if os.path.exists(full_p):
                 with open(full_p, "rb") as f:
                     return f.read()
         elif "/prompt_tracker/view_image?filename=" in img_val:
             from urllib.parse import parse_qs, urlparse
+
             parsed = urlparse(img_val)
             qs = parse_qs(parsed.query)
             fname = qs.get("filename", [""])[0]
-            
+
             img_dir = get_images_dir(active_dir)
             full_p = os.path.join(img_dir, fname)
-            
+
             if not os.path.exists(full_p) and source_master_root:
                 source_img_dir = get_images_dir(source_master_root)
                 full_p = os.path.join(source_img_dir, fname)
-                
+
             if os.path.exists(full_p):
                 with open(full_p, "rb") as f:
                     return f.read()
     except Exception:
         pass
     return None
+
 
 def file_to_data_uri(file_path):
     if os.path.exists(file_path):
@@ -150,6 +179,7 @@ def file_to_data_uri(file_path):
             pass
     return ""
 
+
 def delete_offloaded_file(image_info, active_dir=None):
     try:
         img_url = image_info.get("image", "") if isinstance(image_info, dict) else ""
@@ -159,7 +189,7 @@ def delete_offloaded_file(image_info, active_dir=None):
             if active_dir:
                 paths_to_check.append(os.path.join(get_images_dir(active_dir), fname))
             paths_to_check.append(os.path.join(get_images_dir(), fname))
-            
+
             for p in paths_to_check:
                 if os.path.exists(p):
                     try:
@@ -168,20 +198,27 @@ def delete_offloaded_file(image_info, active_dir=None):
                         pass
     except Exception:
         pass
-        
-def process_image_storage(image_info, is_embedded, existing_image_info=None, active_dir=None, source_master_root=None):
+
+
+def process_image_storage(
+    image_info,
+    is_embedded,
+    existing_image_info=None,
+    active_dir=None,
+    source_master_root=None,
+):
     if not image_info:
         image_info = {"image": ""}
-    
+
     current_img = image_info.get("image", "")
-    
+
     if not current_img and existing_image_info and existing_image_info.get("image"):
         current_img = existing_image_info.get("image")
         image_info["image"] = current_img
 
     if not current_img:
         return image_info
-    
+
     if not is_embedded:
         target_filename = None
         if existing_image_info and isinstance(existing_image_info, dict):
@@ -200,7 +237,9 @@ def process_image_storage(image_info, is_embedded, existing_image_info=None, act
             dest_path = os.path.join(get_images_dir(active_dir), target_filename)
             with open(dest_path, "wb") as f:
                 f.write(img_bytes)
-            image_info["image"] = f"/prompt_tracker/view_image?filename={target_filename}"
+            image_info["image"] = (
+                f"/prompt_tracker/view_image?filename={target_filename}"
+            )
     else:
         file_to_purge = None
         for info in [image_info, existing_image_info]:
@@ -221,7 +260,7 @@ def process_image_storage(image_info, is_embedded, existing_image_info=None, act
                     src_path = os.path.join(get_images_dir(source_master_root), fname)
                 if not os.path.exists(src_path):
                     src_path = os.path.join(get_images_dir(), fname)
-                
+
                 data_uri = file_to_data_uri(src_path)
                 if data_uri:
                     image_info["image"] = data_uri
@@ -231,9 +270,13 @@ def process_image_storage(image_info, is_embedded, existing_image_info=None, act
             image_info["image"] = current_img
 
         if file_to_purge:
-            delete_offloaded_file({"image": f"/prompt_tracker/view_image?filename={file_to_purge}"}, active_dir)
+            delete_offloaded_file(
+                {"image": f"/prompt_tracker/view_image?filename={file_to_purge}"},
+                active_dir,
+            )
 
     return image_info
+
 
 def get_all_referenced_images(data_dir):
     referenced_files = set()
@@ -261,6 +304,7 @@ def get_all_referenced_images(data_dir):
                 pass
     return referenced_files
 
+
 class PromptTrackerNode:
     @classmethod
     def INPUT_TYPES(cls):
@@ -273,6 +317,7 @@ class PromptTrackerNode:
                 "auto_prompt": ("STRING", {"forceInput": True}),
                 "auto_negative": ("STRING", {"forceInput": True}),
                 "auto_render_model": ("STRING", {"forceInput": True}),
+                "auto_lora_info": ("STRING", {"forceInput": True}),
                 "auto_image": ("IMAGE", {"forceInput": True}),
                 "auto_steps": ("INT", {"forceInput": True}),
                 "auto_cfg": ("FLOAT", {"forceInput": True}),
@@ -294,14 +339,31 @@ class PromptTrackerNode:
                 "master_root": ("STRING", {"default": ""}),
                 "instance_uuid": ("STRING", {"default": ""}),
             },
-            "hidden": {
-                "node_id": "UNIQUE_ID",
-                "prompt": "PROMPT"
-            }
+            "hidden": {"node_id": "UNIQUE_ID", "prompt": "PROMPT"},
         }
-        
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "IMAGE")
-    RETURN_NAMES = ("prompt", "negative", "category", "model", "loras", "config", "source", "tag", "IMAGE")
+
+    RETURN_TYPES = (
+        "STRING",
+        "STRING",
+        "STRING",
+        "STRING",
+        "STRING",
+        "STRING",
+        "STRING",
+        "STRING",
+        "IMAGE",
+    )
+    RETURN_NAMES = (
+        "prompt",
+        "negative",
+        "category",
+        "model",
+        "lora_info",
+        "config",
+        "source",
+        "tag",
+        "IMAGE",
+    )
     FUNCTION = "track_prompt"
     CATEGORY = "rsl/tools"
 
@@ -311,12 +373,38 @@ class PromptTrackerNode:
             val = val[0] if len(val) > 0 else True
         return bool(val)
 
-    def track_prompt(self, AutoCaptureOn=True, enable_auto_capture=None, auto_prompt="", auto_negative="", auto_render_model="", 
-                     auto_image=None, auto_steps=None, auto_cfg=None, auto_denoise=None, auto_seed=None, 
-                     prompt_value="", negative_value="", category_value="General", model_value="undefined", 
-                     loras_value="", config_value="", source_value="", tag_value="", steps=20, cfg=8.0, 
-                     denoise=1.0, seed=0, active_db="prompts_db", master_root="", instance_uuid="", node_id=None, prompt=None):
-                    
+    def track_prompt(
+        self,
+        AutoCaptureOn=True,
+        enable_auto_capture=None,
+        auto_prompt="",
+        auto_negative="",
+        auto_render_model="",
+        auto_lora_info="",
+        auto_image=None,
+        auto_steps=None,
+        auto_cfg=None,
+        auto_denoise=None,
+        auto_seed=None,
+        prompt_value="",
+        negative_value="",
+        category_value="General",
+        model_value="undefined",
+        loras_value="",
+        config_value="",
+        source_value="",
+        tag_value="",
+        steps=20,
+        cfg=8.0,
+        denoise=1.0,
+        seed=0,
+        active_db="prompts_db",
+        master_root="",
+        instance_uuid="",
+        node_id=None,
+        prompt=None,
+    ):
+
         def unwrap(val, default=""):
             v = val
             while isinstance(v, (list, tuple)):
@@ -330,19 +418,53 @@ class PromptTrackerNode:
         raw_auto = unwrap(auto_prompt)
         raw_auto_neg = unwrap(auto_negative)
         raw_auto_model = unwrap(auto_render_model)
+        raw_auto_lora = unwrap(auto_lora_info)
         final_instance_uuid = unwrap(instance_uuid)
-        
+
         final_prompt = raw_auto if raw_auto.strip() else str(prompt_value or "")
-        final_negative = raw_auto_neg if raw_auto_neg.strip() else str(negative_value or "")
-        final_model = raw_auto_model if raw_auto_model.strip() else str(model_value or "undefined")
+        final_negative = (
+            raw_auto_neg if raw_auto_neg.strip() else str(negative_value or "")
+        )
+        final_model = (
+            raw_auto_model
+            if raw_auto_model.strip()
+            else str(model_value or "undefined")
+        )
+        final_loras = raw_auto_lora if raw_auto_lora.strip() else str(loras_value or "")
 
-        final_steps = int(auto_steps[0]) if isinstance(auto_steps, (list, tuple)) and len(auto_steps) > 0 else (auto_steps if auto_steps is not None else steps)
-        final_cfg = float(auto_cfg[0]) if isinstance(auto_cfg, (list, tuple)) and len(auto_cfg) > 0 else (auto_cfg if auto_cfg is not None else cfg)
-        final_denoise = float(auto_denoise[0]) if isinstance(auto_denoise, (list, tuple)) and len(auto_denoise) > 0 else (auto_denoise if auto_denoise is not None else denoise)
-        final_seed = int(auto_seed[0]) if isinstance(auto_seed, (list, tuple)) and len(auto_seed) > 0 else (auto_seed if auto_seed is not None else seed)
+        final_steps = (
+            int(auto_steps[0])
+            if isinstance(auto_steps, (list, tuple)) and len(auto_steps) > 0
+            else (auto_steps if auto_steps is not None else steps)
+        )
+        final_cfg = (
+            float(auto_cfg[0])
+            if isinstance(auto_cfg, (list, tuple)) and len(auto_cfg) > 0
+            else (auto_cfg if auto_cfg is not None else cfg)
+        )
+        final_denoise = (
+            float(auto_denoise[0])
+            if isinstance(auto_denoise, (list, tuple)) and len(auto_denoise) > 0
+            else (auto_denoise if auto_denoise is not None else denoise)
+        )
+        final_seed = (
+            int(auto_seed[0])
+            if isinstance(auto_seed, (list, tuple)) and len(auto_seed) > 0
+            else (auto_seed if auto_seed is not None else seed)
+        )
 
-        image_data_payload = {"image": "", "steps": final_steps, "cfg": final_cfg, "denoise": final_denoise, "seed": final_seed, "render_model": final_model}
-        output_image_tensor = auto_image if auto_image is not None else torch.zeros((1, 64, 64, 3))
+        image_data_payload = {
+            "image": "",
+            "steps": final_steps,
+            "cfg": final_cfg,
+            "denoise": final_denoise,
+            "seed": final_seed,
+            "render_model": final_model,
+            "lora_info": final_loras,
+        }
+        output_image_tensor = (
+            auto_image if auto_image is not None else torch.zeros((1, 64, 64, 3))
+        )
 
         if auto_image is not None:
             try:
@@ -350,13 +472,19 @@ class PromptTrackerNode:
                 unique_id = int(time.time() * 1000)
                 filename = f"rsl_auto_capture_{os.getpid()}_{unique_id}.png"
                 full_path = os.path.join(output_dir, filename)
-                
-                img_tensor = auto_image[0] if isinstance(auto_image, torch.Tensor) and auto_image.ndim == 4 else auto_image
+
+                img_tensor = (
+                    auto_image[0]
+                    if isinstance(auto_image, torch.Tensor) and auto_image.ndim == 4
+                    else auto_image
+                )
                 image_np = 255.0 * img_tensor.cpu().numpy()
                 image_pil = Image.fromarray(np.clip(image_np, 0, 255).astype(np.uint8))
                 image_pil.save(full_path)
 
-                image_data_payload["image"] = f"/view?filename={filename}&type=temp&subfolder="
+                image_data_payload["image"] = (
+                    f"/view?filename={filename}&type=temp&subfolder="
+                )
             except Exception:
                 pass
 
@@ -364,38 +492,54 @@ class PromptTrackerNode:
 
         if raw_auto.strip() and node_id is not None and should_capture:
             try:
-                PromptServer.instance.send_sync("rsl-auto-prompt-received", {
-                    "node_id": str(node_id),
-                    "instance_uuid": final_instance_uuid,
-                    "prompt": raw_auto,
-                    "negative": final_negative,
-                    "category": category_value,
-                    "model": final_model,
-                    "loras": loras_value,
-                    "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
-                    "source": source_value or "Auto-Prompt",
-                    "tags": tag_value,
-                    "steps": final_steps,
-                    "cfg": final_cfg,
-                    "denoise": final_denoise,
-                    "seed": final_seed,
-                    "render_model": final_model,
-                    "image_info": image_data_payload,
-                    "active_db": active_db
-                })
+                PromptServer.instance.send_sync(
+                    "rsl-auto-prompt-received",
+                    {
+                        "node_id": str(node_id),
+                        "instance_uuid": final_instance_uuid,
+                        "prompt": raw_auto,
+                        "negative": final_negative,
+                        "category": category_value,
+                        "model": final_model,
+                        "loras": final_loras,
+                        "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
+                        "source": source_value or "Auto-Prompt",
+                        "tags": tag_value,
+                        "steps": final_steps,
+                        "cfg": final_cfg,
+                        "denoise": final_denoise,
+                        "seed": final_seed,
+                        "render_model": final_model,
+                        "image_info": image_data_payload,
+                        "active_db": active_db,
+                    },
+                )
             except Exception:
                 pass
-            
+
         return {
             "ui": {
                 "prompt": [final_prompt],
                 "negative_prompt": [final_negative],
-                "model": [final_model]
+                "model": [final_model],
+                "loras": [final_loras],
             },
-            "result": (str(final_prompt), str(final_negative), category_value, final_model, loras_value, config_value, source_value, tag_value, output_image_tensor)
+            "result": (
+                str(final_prompt),
+                str(final_negative),
+                category_value,
+                final_model,
+                final_loras,
+                config_value,
+                source_value,
+                tag_value,
+                output_image_tensor,
+            ),
         }
 
+
 routes = PromptServer.instance.routes
+
 
 @routes.get("/prompt_tracker/view_image")
 async def view_offloaded_image(request):
@@ -409,9 +553,11 @@ async def view_offloaded_image(request):
         return web.FileResponse(img_path)
     return web.Response(status=404)
 
+
 @routes.get("/prompt_tracker/get_master_dir")
 async def get_master_directory(request):
     return web.json_response({"master_dir": get_master_dir()})
+
 
 @routes.post("/prompt_tracker/set_master_dir")
 async def set_master_directory(request):
@@ -421,9 +567,12 @@ async def set_master_directory(request):
         if path and os.path.isdir(path):
             set_master_dir(path)
             return web.json_response({"status": "success", "master_dir": path})
-        return web.json_response({"status": "error", "message": "Invalid directory path"}, status=400)
+        return web.json_response(
+            {"status": "error", "message": "Invalid directory path"}, status=400
+        )
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400)
+
 
 @routes.post("/prompt_tracker/browse_dirs")
 async def browse_dirs(request):
@@ -431,23 +580,42 @@ async def browse_dirs(request):
         data = await request.json()
         path = data.get("path", "")
         if not path or not os.path.exists(path):
-            if os.name == 'nt':
-                drives = [f"{d}:\\" for d in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" if os.path.exists(f"{d}:\\")]
-                return web.json_response({"current": "", "dirs": drives, "is_drive_list": True})
+            if os.name == "nt":
+                drives = [
+                    f"{d}:\\"
+                    for d in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                    if os.path.exists(f"{d}:\\")
+                ]
+                return web.json_response(
+                    {"current": "", "dirs": drives, "is_drive_list": True}
+                )
             else:
                 path = "/"
-        
+
         if os.path.isdir(path):
             items = os.listdir(path)
-            dirs = [i for i in items if os.path.isdir(os.path.join(path, i)) and not i.startswith('.')]
+            dirs = [
+                i
+                for i in items
+                if os.path.isdir(os.path.join(path, i)) and not i.startswith(".")
+            ]
             dirs.sort()
-            return web.json_response({"current": path, "dirs": dirs, "is_drive_list": False})
+            return web.json_response(
+                {"current": path, "dirs": dirs, "is_drive_list": False}
+            )
         return web.json_response({"error": "Invalid path"}, status=400)
     except Exception as e:
-        if os.name == 'nt':
-            drives = [f"{d}:\\" for d in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" if os.path.exists(f"{d}:\\")]
-            return web.json_response({"current": "", "dirs": drives, "is_drive_list": True})
+        if os.name == "nt":
+            drives = [
+                f"{d}:\\"
+                for d in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                if os.path.exists(f"{d}:\\")
+            ]
+            return web.json_response(
+                {"current": "", "dirs": drives, "is_drive_list": True}
+            )
         return web.json_response({"error": str(e)}, status=400)
+
 
 @routes.get("/prompt_tracker/list_dbs")
 async def list_dbs(request):
@@ -460,42 +628,60 @@ async def list_dbs(request):
     except Exception:
         return web.json_response(["prompts_db"])
 
+
 @routes.get("/prompt_tracker/get")
 async def get_db(request):
     db_name = request.rel_url.query.get("db", "prompts_db")
     active_dir = get_target_data_dir(request.rel_url.query)
     return web.json_response(load_db_file(db_name, active_dir))
 
+
 @routes.post("/prompt_tracker/add")
 async def add_prompt(request):
     try:
         json_data = await request.json()
         if not json_data:
-            return web.json_response({"status": "error", "message": "Invalid or empty JSON body"}, status=400)
-            
+            return web.json_response(
+                {"status": "error", "message": "Invalid or empty JSON body"}, status=400
+            )
+
         db_name = json_data.get("db", "prompts_db")
         active_dir = get_target_data_dir(json_data)
         source_master_root = json_data.get("source_master_root")
         instance_uuid = json_data.get("instance_uuid")
         db_data = load_db_file(db_name, active_dir)
-        
+
         if json_data.get("source") == "Auto-Prompt" and db_data:
             last_entry = db_data[-1]
-            if last_entry.get("prompt") == json_data.get("prompt", "") and last_entry.get("negative") == json_data.get("negative", ""):
+            if last_entry.get("prompt") == json_data.get(
+                "prompt", ""
+            ) and last_entry.get("negative") == json_data.get("negative", ""):
                 try:
                     last_time = datetime.fromisoformat(last_entry.get("created_at", ""))
                     if (datetime.utcnow() - last_time).total_seconds() < 2.0:
-                        return web.json_response({"status": "success", "entry": last_entry, "db": db_data})
+                        return web.json_response(
+                            {"status": "success", "entry": last_entry, "db": db_data}
+                        )
                 except Exception:
                     pass
 
         is_embedded = json_data.get("is_embedded", False)
-        image_info = json_data.get("image_info", {
-            "image": "", "steps": 20, "cfg": 8.0, "denoise": 1.0, "seed": 0, "render_model": "undefined"
-        })
-        
-        processed_image_info = process_image_storage(image_info, is_embedded, None, active_dir, source_master_root)
-        
+        image_info = json_data.get(
+            "image_info",
+            {
+                "image": "",
+                "steps": 20,
+                "cfg": 8.0,
+                "denoise": 1.0,
+                "seed": 0,
+                "render_model": "undefined",
+            },
+        )
+
+        processed_image_info = process_image_storage(
+            image_info, is_embedded, None, active_dir, source_master_root
+        )
+
         entry = {
             "id": str(uuid.uuid4()),
             "created_at": datetime.utcnow().isoformat(),
@@ -503,15 +689,15 @@ async def add_prompt(request):
             "negative": json_data.get("negative", ""),
             "category": json_data.get("category", "General"),
             "model": json_data.get("model", "undefined"),
-            "loras": json_data.get("loras", ""),
+            "loras": json_data.get("loras", "") or json_data.get("lora_info", ""),
             "config": json_data.get("config", ""),
             "source": json_data.get("source", ""),
             "tags": json_data.get("tags", ""),
             "image_info": processed_image_info,
             "is_embedded": is_embedded,
-            "starred": json_data.get("starred", False)
+            "starred": json_data.get("starred", False),
         }
-        
+
         db_data.append(entry)
         save_db_file(db_name, db_data, active_dir)
 
@@ -520,59 +706,81 @@ async def add_prompt(request):
             master_root=json_data.get("master_root"),
             action="add",
             item_id=entry.get("id"),
-            instance_uuid=instance_uuid
+            instance_uuid=instance_uuid,
         )
 
         return web.json_response({"status": "success", "entry": entry, "db": db_data})
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400)
-    
+
+
 @routes.post("/prompt_tracker/update")
 async def update_prompt(request):
     try:
         json_data = await request.json()
         if not json_data:
-            return web.json_response({"status": "error", "message": "Invalid or empty JSON body"}, status=400)
+            return web.json_response(
+                {"status": "error", "message": "Invalid or empty JSON body"}, status=400
+            )
 
         db_name = json_data.get("db", "prompts_db")
         active_dir = get_target_data_dir(json_data)
         source_master_root = json_data.get("source_master_root")
         instance_uuid = json_data.get("instance_uuid")
         db_data = load_db_file(db_name, active_dir)
-        
+
         prompt_id = json_data.get("id")
         index = json_data.get("index")
-        
+
         entry_index = None
         if prompt_id:
-            entry_index = next((i for i, item in enumerate(db_data) if item.get("id") == prompt_id), None)
+            entry_index = next(
+                (i for i, item in enumerate(db_data) if item.get("id") == prompt_id),
+                None,
+            )
         if entry_index is None and index is not None and 0 <= index < len(db_data):
             entry_index = index
 
         if entry_index is not None and 0 <= entry_index < len(db_data):
             existing = db_data[entry_index]
-            is_embedded = json_data.get("is_embedded", existing.get("is_embedded", True))
-            
+            is_embedded = json_data.get(
+                "is_embedded", existing.get("is_embedded", True)
+            )
+
             existing["prompt"] = json_data.get("prompt", existing.get("prompt", ""))
-            existing["negative"] = json_data.get("negative", existing.get("negative", ""))
-            existing["category"] = json_data.get("category", existing.get("category", "General"))
-            existing["model"] = json_data.get("model", existing.get("model", "undefined"))
-            existing["loras"] = json_data.get("loras", existing.get("loras", ""))
+            existing["negative"] = json_data.get(
+                "negative", existing.get("negative", "")
+            )
+            existing["category"] = json_data.get(
+                "category", existing.get("category", "General")
+            )
+            existing["model"] = json_data.get(
+                "model", existing.get("model", "undefined")
+            )
+            existing["loras"] = json_data.get(
+                "loras", existing.get("loras", "")
+            ) or json_data.get("lora_info", "")
             existing["config"] = json_data.get("config", existing.get("config", ""))
             existing["source"] = json_data.get("source", existing.get("source", ""))
             existing["tags"] = json_data.get("tags", existing.get("tags", ""))
             existing["is_embedded"] = is_embedded
             existing["updated_at"] = datetime.utcnow().isoformat()
-            
+
             img_info_input = json_data.get("image_info")
             if not img_info_input or not img_info_input.get("image"):
                 img_info_input = existing.get("image_info")
 
-            existing["image_info"] = process_image_storage(img_info_input, is_embedded, existing.get("image_info"), active_dir, source_master_root)
+            existing["image_info"] = process_image_storage(
+                img_info_input,
+                is_embedded,
+                existing.get("image_info"),
+                active_dir,
+                source_master_root,
+            )
 
             if json_data.get("starred") is not None:
                 existing["starred"] = json_data.get("starred")
-                
+
             save_db_file(db_name, db_data, active_dir)
 
             broadcast_database_refresh(
@@ -580,14 +788,19 @@ async def update_prompt(request):
                 master_root=json_data.get("master_root"),
                 action="update",
                 item_id=existing.get("id"),
-                instance_uuid=instance_uuid
+                instance_uuid=instance_uuid,
             )
 
-            return web.json_response({"status": "success", "entry": existing, "db": db_data})
-        
-        return web.json_response({"status": "error", "message": "Prompt not found"}, status=404)
+            return web.json_response(
+                {"status": "success", "entry": existing, "db": db_data}
+            )
+
+        return web.json_response(
+            {"status": "error", "message": "Prompt not found"}, status=404
+        )
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400)
+
 
 @routes.post("/prompt_tracker/delete")
 async def delete_prompt(request):
@@ -597,13 +810,16 @@ async def delete_prompt(request):
         active_dir = get_target_data_dir(json_data)
         instance_uuid = json_data.get("instance_uuid")
         db_data = load_db_file(db_name, active_dir)
-        
+
         prompt_id = json_data.get("id")
         index = json_data.get("index")
-        
+
         entry_index = None
         if prompt_id:
-            entry_index = next((i for i, item in enumerate(db_data) if item.get("id") == prompt_id), None)
+            entry_index = next(
+                (i for i, item in enumerate(db_data) if item.get("id") == prompt_id),
+                None,
+            )
         if entry_index is None and index is not None and 0 <= index < len(db_data):
             entry_index = index
 
@@ -617,14 +833,17 @@ async def delete_prompt(request):
                 master_root=json_data.get("master_root"),
                 action="delete",
                 item_id=removed.get("id"),
-                instance_uuid=instance_uuid
+                instance_uuid=instance_uuid,
             )
 
             return web.json_response({"status": "success", "db": db_data})
-            
-        return web.json_response({"status": "error", "message": "Prompt not found"}, status=404)
+
+        return web.json_response(
+            {"status": "error", "message": "Prompt not found"}, status=404
+        )
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400)
+
 
 @routes.post("/prompt_tracker/move_prompt")
 async def move_prompt(request):
@@ -638,13 +857,22 @@ async def move_prompt(request):
         active_dir = get_target_data_dir(json_data)
 
         if not target_db or source_db == target_db:
-            return web.json_response({"status": "error", "message": "Invalid target database"}, status=400)
+            return web.json_response(
+                {"status": "error", "message": "Invalid target database"}, status=400
+            )
 
         source_data = load_db_file(source_db, active_dir)
-        
+
         entry_index = None
         if prompt_id:
-            entry_index = next((i for i, item in enumerate(source_data) if item.get("id") == prompt_id), None)
+            entry_index = next(
+                (
+                    i
+                    for i, item in enumerate(source_data)
+                    if item.get("id") == prompt_id
+                ),
+                None,
+            )
         if entry_index is None and index is not None and 0 <= index < len(source_data):
             entry_index = index
 
@@ -656,13 +884,28 @@ async def move_prompt(request):
             target_data.append(prompt_to_move)
             save_db_file(target_db, target_data, active_dir)
 
-            broadcast_database_refresh(db_name=source_db, master_root=json_data.get("master_root"), action="delete", item_id=prompt_to_move.get("id"), instance_uuid=instance_uuid)
-            broadcast_database_refresh(db_name=target_db, master_root=json_data.get("master_root"), action="add", item_id=prompt_to_move.get("id"), instance_uuid=instance_uuid)
+            broadcast_database_refresh(
+                db_name=source_db,
+                master_root=json_data.get("master_root"),
+                action="delete",
+                item_id=prompt_to_move.get("id"),
+                instance_uuid=instance_uuid,
+            )
+            broadcast_database_refresh(
+                db_name=target_db,
+                master_root=json_data.get("master_root"),
+                action="add",
+                item_id=prompt_to_move.get("id"),
+                instance_uuid=instance_uuid,
+            )
 
             return web.json_response({"status": "success", "db": source_data})
-        return web.json_response({"status": "error", "message": "Prompt not found"}, status=404)
+        return web.json_response(
+            {"status": "error", "message": "Prompt not found"}, status=404
+        )
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400)
+
 
 @routes.post("/prompt_tracker/toggle_star")
 async def toggle_star(request):
@@ -674,10 +917,13 @@ async def toggle_star(request):
         instance_uuid = json_data.get("instance_uuid")
         active_dir = get_target_data_dir(json_data)
         db_data = load_db_file(db_name, active_dir)
-        
+
         entry_index = None
         if prompt_id:
-            entry_index = next((i for i, item in enumerate(db_data) if item.get("id") == prompt_id), None)
+            entry_index = next(
+                (i for i, item in enumerate(db_data) if item.get("id") == prompt_id),
+                None,
+            )
         if entry_index is None and index is not None and 0 <= index < len(db_data):
             entry_index = index
 
@@ -686,12 +932,23 @@ async def toggle_star(request):
             db_data[entry_index]["starred"] = not current_star
             save_db_file(db_name, db_data, active_dir)
 
-            broadcast_database_refresh(db_name=db_name, master_root=json_data.get("master_root"), action="update", item_id=db_data[entry_index].get("id"), instance_uuid=instance_uuid)
+            broadcast_database_refresh(
+                db_name=db_name,
+                master_root=json_data.get("master_root"),
+                action="update",
+                item_id=db_data[entry_index].get("id"),
+                instance_uuid=instance_uuid,
+            )
 
-            return web.json_response({"status": "success", "starred": db_data[entry_index]["starred"]})
-        return web.json_response({"status": "error", "message": "Prompt not found"}, status=404)
+            return web.json_response(
+                {"status": "success", "starred": db_data[entry_index]["starred"]}
+            )
+        return web.json_response(
+            {"status": "error", "message": "Prompt not found"}, status=404
+        )
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400)
+
 
 @routes.post("/prompt_tracker/new_db")
 async def new_db(request):
@@ -700,14 +957,17 @@ async def new_db(request):
         db_name = json_data.get("db")
         active_dir = get_target_data_dir(json_data)
         if not db_name:
-            return web.json_response({"status": "error", "message": "Empty name"}, status=400)
-        
+            return web.json_response(
+                {"status": "error", "message": "Empty name"}, status=400
+            )
+
         path = get_db_path(db_name, active_dir)
         if not os.path.exists(path):
             save_db_file(db_name, [], active_dir)
         return web.json_response({"status": "success"})
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400)
+
 
 @routes.post("/prompt_tracker/rename_db")
 async def rename_db(request):
@@ -717,16 +977,21 @@ async def rename_db(request):
         new_name = json_data.get("new_db")
         active_dir = get_target_data_dir(json_data)
         if old_name == "prompts_db":
-            return web.json_response({"status": "error", "message": "Cannot rename default DB"}, status=400)
-        
+            return web.json_response(
+                {"status": "error", "message": "Cannot rename default DB"}, status=400
+            )
+
         old_path = get_db_path(old_name, active_dir)
         new_path = get_db_path(new_name, active_dir)
         if os.path.exists(old_path):
             os.rename(old_path, new_path)
             return web.json_response({"status": "success"})
-        return web.json_response({"status": "error", "message": "DB not found"}, status=404)
+        return web.json_response(
+            {"status": "error", "message": "DB not found"}, status=404
+        )
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400)
+
 
 @routes.post("/prompt_tracker/delete_db")
 async def delete_db(request):
@@ -735,15 +1000,20 @@ async def delete_db(request):
         db_name = json_data.get("db")
         active_dir = get_target_data_dir(json_data)
         if db_name == "prompts_db":
-            return web.json_response({"status": "error", "message": "Cannot delete default DB"}, status=400)
-        
+            return web.json_response(
+                {"status": "error", "message": "Cannot delete default DB"}, status=400
+            )
+
         path = get_db_path(db_name, active_dir)
         if os.path.exists(path):
             os.remove(path)
             return web.json_response({"status": "success"})
-        return web.json_response({"status": "error", "message": "DB not found"}, status=404)
+        return web.json_response(
+            {"status": "error", "message": "DB not found"}, status=404
+        )
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400)
+
 
 @routes.post("/prompt_tracker/delete_category")
 async def delete_category(request):
@@ -754,15 +1024,21 @@ async def delete_category(request):
         instance_uuid = json_data.get("instance_uuid")
         active_dir = get_target_data_dir(json_data)
         db_data = load_db_file(db_name, active_dir)
-        
+
         for item in db_data:
             if item.get("category") == category_to_del:
                 item["category"] = "General"
         save_db_file(db_name, db_data, active_dir)
-        broadcast_database_refresh(db_name=db_name, master_root=json_data.get("master_root"), action="update", instance_uuid=instance_uuid)
+        broadcast_database_refresh(
+            db_name=db_name,
+            master_root=json_data.get("master_root"),
+            action="update",
+            instance_uuid=instance_uuid,
+        )
         return web.json_response({"status": "success", "db": db_data})
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400)
+
 
 @routes.post("/prompt_tracker/delete_model")
 async def delete_model(request):
@@ -773,15 +1049,21 @@ async def delete_model(request):
         instance_uuid = json_data.get("instance_uuid")
         active_dir = get_target_data_dir(json_data)
         db_data = load_db_file(db_name, active_dir)
-        
+
         for item in db_data:
             if item.get("model") == model_to_del:
                 item["model"] = "undefined"
         save_db_file(db_name, db_data, active_dir)
-        broadcast_database_refresh(db_name=db_name, master_root=json_data.get("master_root"), action="update", instance_uuid=instance_uuid)
+        broadcast_database_refresh(
+            db_name=db_name,
+            master_root=json_data.get("master_root"),
+            action="update",
+            instance_uuid=instance_uuid,
+        )
         return web.json_response({"status": "success", "db": db_data})
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=400)
+
 
 @routes.post("/prompt_tracker/clean_orphans")
 async def clean_orphaned_images_handler(request):
@@ -789,13 +1071,21 @@ async def clean_orphaned_images_handler(request):
         json_data = await request.json() if request.can_read_body else {}
         active_dir = get_target_data_dir(json_data)
         images_dir = get_images_dir(active_dir)
-        
+
         if not os.path.exists(images_dir):
-            return web.json_response({"status": "success", "deleted_count": 0, "message": "No images folder found."})
+            return web.json_response(
+                {
+                    "status": "success",
+                    "deleted_count": 0,
+                    "message": "No images folder found.",
+                }
+            )
 
         referenced_files = get_all_referenced_images(active_dir)
         disk_files_list = os.listdir(images_dir)
-        directory_files = set(f for f in disk_files_list if os.path.isfile(os.path.join(images_dir, f)))
+        directory_files = set(
+            f for f in disk_files_list if os.path.isfile(os.path.join(images_dir, f))
+        )
 
         orphan_files = directory_files - referenced_files
 
@@ -808,13 +1098,16 @@ async def clean_orphaned_images_handler(request):
             except Exception:
                 pass
 
-        return web.json_response({
-            "status": "success",
-            "deleted_count": deleted_count,
-            "message": f"Cleaned {deleted_count} true orphaned file(s) from disk."
-        })
+        return web.json_response(
+            {
+                "status": "success",
+                "deleted_count": deleted_count,
+                "message": f"Cleaned {deleted_count} true orphaned file(s) from disk.",
+            }
+        )
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
+
 
 @routes.post("/prompt_tracker/audit_images")
 async def audit_broken_images_handler(request):
@@ -829,13 +1122,19 @@ async def audit_broken_images_handler(request):
         dbs_to_audit = []
         if is_global:
             if os.path.exists(active_dir):
-                dbs_to_audit = [f[:-5] for f in os.listdir(active_dir) if f.endswith(".json")]
+                dbs_to_audit = [
+                    f[:-5] for f in os.listdir(active_dir) if f.endswith(".json")
+                ]
         else:
             dbs_to_audit = [target_db]
 
         disk_files = set()
         if os.path.exists(images_dir):
-            disk_files = set(f for f in os.listdir(images_dir) if os.path.isfile(os.path.join(images_dir, f)))
+            disk_files = set(
+                f
+                for f in os.listdir(images_dir)
+                if os.path.isfile(os.path.join(images_dir, f))
+            )
 
         total_broken_cleared = 0
         dbs_modified = 0
@@ -870,21 +1169,29 @@ async def audit_broken_images_handler(request):
                 save_db_file(db_name, entries, active_dir)
                 total_broken_cleared += broken_count
                 dbs_modified += 1
-                broadcast_database_refresh(db_name=db_name, master_root=json_data.get("master_root"), action="update", instance_uuid=instance_uuid)
+                broadcast_database_refresh(
+                    db_name=db_name,
+                    master_root=json_data.get("master_root"),
+                    action="update",
+                    instance_uuid=instance_uuid,
+                )
 
         msg = (
             f"Global Audit: Cleared {total_broken_cleared} missing link(s) across {dbs_modified} database(s)."
-            if is_global else
-            f"Audited DB '{target_db}': Cleared {total_broken_cleared} missing link(s)."
+            if is_global
+            else f"Audited DB '{target_db}': Cleared {total_broken_cleared} missing link(s)."
         )
 
-        return web.json_response({
-            "status": "success",
-            "broken_cleared": total_broken_cleared,
-            "message": msg
-        })
+        return web.json_response(
+            {
+                "status": "success",
+                "broken_cleared": total_broken_cleared,
+                "message": msg,
+            }
+        )
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
+
 
 @routes.post("/prompt_tracker/export_images")
 async def export_images_handler(request):
@@ -894,22 +1201,25 @@ async def export_images_handler(request):
         active_dir = get_target_data_dir(json_data)
         export_base_path = json_data.get("export_path")
         source_master_root = json_data.get("master_root")
-        
+
         if not export_base_path or not os.path.isdir(export_base_path):
-            return web.json_response({"status": "error", "message": "Invalid export base directory"}, status=400)
-            
+            return web.json_response(
+                {"status": "error", "message": "Invalid export base directory"},
+                status=400,
+            )
+
         target_export_dir = os.path.join(export_base_path, db_name)
         os.makedirs(target_export_dir, exist_ok=True)
-        
+
         db_data = load_db_file(db_name, active_dir)
         exported_count = 0
-        
+
         for idx, item in enumerate(db_data):
             img_info = item.get("image_info") or {}
             img_val = img_info.get("image", "")
             if not img_val:
                 continue
-                
+
             img_bytes = extract_image_bytes(img_val, active_dir, source_master_root)
             if img_bytes:
                 filename = f"{db_name}-{idx + 1:03d}.png"
@@ -917,20 +1227,19 @@ async def export_images_handler(request):
                 with open(file_path, "wb") as f:
                     f.write(img_bytes)
                 exported_count += 1
-                
-        return web.json_response({
-            "status": "success",
-            "exported_count": exported_count,
-            "target_dir": target_export_dir,
-            "message": f"Successfully exported {exported_count} image(s) to '{target_export_dir}'"
-        })
+
+        return web.json_response(
+            {
+                "status": "success",
+                "exported_count": exported_count,
+                "target_dir": target_export_dir,
+                "message": f"Successfully exported {exported_count} image(s) to '{target_export_dir}'",
+            }
+        )
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
-    
-NODE_CLASS_MAPPINGS = {
-    "PromptTrackerNode": PromptTrackerNode
-}
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "PromptTrackerNode": "rsl Prompt Tracker & Library"
-}
+
+NODE_CLASS_MAPPINGS = {"PromptTrackerNode": PromptTrackerNode}
+
+NODE_DISPLAY_NAME_MAPPINGS = {"PromptTrackerNode": "rsl Prompt Tracker & Library"}

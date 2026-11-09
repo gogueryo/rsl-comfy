@@ -42,15 +42,24 @@ app.registerExtension({
         container.appendChild(infoLabel);
         container.appendChild(placeholder);
 
-        let currentImageInfo = { steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined", image: "" };
+        let currentImageInfo = {
+            steps: 20,
+            cfg: 8.0,
+            denoise: 1.0,
+            seed: 0,
+            render_model: "undefined",
+            lora_info: "No LoRAs active",
+            image: ""
+        };
 
-        // Configure drag transfer to bundle permanent base64 image and metadata JSON including render_model
+        // Configure drag transfer to bundle permanent base64 image, metadata JSON, and lora_info
         previewImg.addEventListener("dragstart", (e) => {
             if (!currentImageInfo.image) return;
-            
+
             const payload = JSON.stringify({
                 image: currentImageInfo.image,
                 render_model: currentImageInfo.render_model,
+                lora_info: currentImageInfo.lora_info,
                 image_info: {
                     steps: currentImageInfo.steps,
                     cfg: currentImageInfo.cfg,
@@ -58,21 +67,21 @@ app.registerExtension({
                     seed: currentImageInfo.seed
                 }
             });
-            
+
             e.dataTransfer.setData("application/rsl-preview-bundle", payload);
             e.dataTransfer.setData("DownloadURL", `image/png:rsl_preview.png:${currentImageInfo.image}`);
         });
 
         const origOnExecuted = node.onExecuted;
-        node.onExecuted = async function(message) {
+        node.onExecuted = async function (message) {
             if (origOnExecuted) origOnExecuted.apply(this, arguments);
-            
+
             if (message && message.images && message.images.length > 0) {
                 const imgData = message.images[0];
-                
+
                 const subfolder = imgData.subfolder || "";
                 const imageUrl = api.apiURL(`/view?filename=${encodeURIComponent(imgData.filename)}&type=${imgData.type || "temp"}&subfolder=${encodeURIComponent(subfolder)}&t=${Date.now()}`);
-                
+
                 if (imgData.image_info) {
                     currentImageInfo.steps = imgData.image_info.steps ?? 20;
                     currentImageInfo.cfg = imgData.image_info.cfg ?? 8.0;
@@ -84,7 +93,11 @@ app.registerExtension({
                     currentImageInfo.render_model = imgData.render_model;
                 }
 
-                infoLabel.innerText = `Model: ${currentImageInfo.render_model} | Steps: ${currentImageInfo.steps} | CFG: ${currentImageInfo.cfg} | Seed: ${currentImageInfo.seed}`;
+                if (imgData.lora_info) {
+                    currentImageInfo.lora_info = imgData.lora_info;
+                }
+
+                infoLabel.innerText = `Model: ${currentImageInfo.render_model} | Steps: ${currentImageInfo.steps} | LoRAs: ${currentImageInfo.lora_info}`;
 
                 try {
                     const response = await fetch(imageUrl);

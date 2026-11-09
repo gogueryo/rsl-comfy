@@ -15,7 +15,7 @@ function hideBackendWidgets(node) {
     node.widgets.forEach(w => {
         if ([
             "AutoCaptureOn", "auto_prompt", "auto_negative", "auto_render_model",
-            "auto_image", "auto_steps", "auto_cfg", "auto_denoise", "auto_seed",
+            "auto_lora_info", "auto_image", "auto_steps", "auto_cfg", "auto_denoise", "auto_seed",
             "prompt_value", "negative_value", "category_value", "model_value",
             "loras_value", "config_value", "source_value", "tag_value",
             "steps", "cfg", "denoise", "seed", "active_db", "master_root"
@@ -28,6 +28,13 @@ function hideBackendWidgets(node) {
             w.draw = function () { };
         }
     });
+}
+
+function formatLoraDisplayName(fullLoraString) {
+    if (!fullLoraString) return "";
+    const cleanWeights = fullLoraString.replace(/\s*\([^)]*\)/g, "").trim();
+    const baseName = cleanWeights.split(/[/\\]/).pop();
+    return baseName || fullLoraString;
 }
 
 function createResizeDivider(title, accentColor, onResizeTotal) {
@@ -101,7 +108,6 @@ function createResizeDivider(title, accentColor, onResizeTotal) {
     return divider;
 }
 
-// Inject global forced scrollbar styles to ensure Mac and webview scrollbars are always visible
 const scrollbarStyleId = "rsl-forced-scrollbar-styles";
 if (!document.getElementById(scrollbarStyleId)) {
     const styleEl = document.createElement("style");
@@ -163,7 +169,7 @@ app.registerExtension({
 
         let localDb = [];
         let selectedIndex = null;
-        let currentImageInfo = { image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined" };
+        let currentImageInfo = { image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined", lora_info: "" };
         let autoCaptureState = true;
         let currentDbName = node.properties.selected_database;
         let searchFilterQuery = "";
@@ -175,14 +181,51 @@ app.registerExtension({
 
         let dbCategories = new Set(["General"]);
         let dbModels = new Set(["undefined"]);
+        let dbLoras = new Set([""]);
         let activeSelectedCategory = "General";
         let activeSelectedModel = "undefined";
+        let activeSelectedLora = "";
 
         hideBackendWidgets(node);
         const enableWidget = node.widgets?.find(w => w.name === "enable_auto_capture");
         if (enableWidget) {
             enableWidget.computeSize = () => [0, -4];
             enableWidget.draw = function () { };
+        }
+
+        function checkIfModified() {
+            if (selectedIndex === null || !localDb[selectedIndex]) return false;
+            const item = localDb[selectedIndex];
+
+            const pText = item.prompt || "";
+            const nText = item.negative || "";
+            const cat = item.category || "General";
+            const mod = item.model || "undefined";
+            const loras = item.lora_info || item.image_info?.lora_info || "";
+            const cfg = item.config || "";
+            const src = item.source || "";
+            const tgs = item.tags || "";
+
+            return (
+                activeTextarea.value !== pText ||
+                activeNegativeTextarea.value !== nText ||
+                activeSelectedCategory !== cat ||
+                activeSelectedModel !== mod ||
+                currentImageInfo.lora_info !== loras ||
+                configInput.value.trim() !== cfg ||
+                sourceInput.value.trim() !== src ||
+                tagInput.value.trim() !== tgs
+            );
+        }
+
+        function updateDirtyStateUI() {
+            const isModified = checkIfModified();
+            const redBorder = "#ef4444";
+            const defaultBorder = activeTheme.borderFocus || "#4f46e5";
+
+            updateBtn.style.border = isModified ? `2px solid ${redBorder}` : `1px solid ${defaultBorder}`;
+            updateBtn.style.boxShadow = isModified ? "0 0 8px rgba(239, 68, 68, 0.6)" : "none";
+            activePromptBox.style.borderColor = isModified ? redBorder : activeTheme.blueBoxBorder;
         }
 
         function getProxiedImageUrl(imgUrl) {
@@ -224,23 +267,28 @@ app.registerExtension({
         }
 
         function createPromptTransferPayload(item, sourceMasterRoot, sourceUuid) {
-            const imgInfo = item.image_info || { steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined" };
+            const imgInfo = item.image_info || { steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined", lora_info: "" };
             const rawImg = imgInfo.image || "";
             const cleanImg = (rawImg.startsWith("data:") || rawImg.startsWith("http")) ? rawImg : "";
+            const resolvedLora = item.lora_info || imgInfo.lora_info || "";
+            const resolvedModel = item.model || imgInfo.model || imgInfo.render_model || "undefined";
 
             return {
                 prompt: item.prompt || "",
                 negative: item.negative || "",
                 category: item.category || "General",
-                model: item.model || "undefined",
-                loras: item.loras || "",
+                model: resolvedModel,
+                render_model: resolvedModel,
+                lora_info: resolvedLora,
                 config: item.config || "",
                 source: item.source || "",
                 tags: item.tags || "",
                 starred: item.starred || false,
                 image_info: {
                     ...imgInfo,
-                    image: cleanImg
+                    image: cleanImg,
+                    lora_info: resolvedLora,
+                    render_model: resolvedModel
                 },
                 is_embedded: Boolean(cleanImg),
                 source_master_root: sourceMasterRoot || "",
@@ -255,7 +303,9 @@ app.registerExtension({
                 if (w.name === "negative_value") w.value = activeNegativeTextarea.value;
                 if (w.name === "category_value") w.value = activeSelectedCategory;
                 if (w.name === "model_value") w.value = activeSelectedModel;
-                if (w.name === "loras_value") w.value = lorasInput.value.trim();
+                if (w.name === "loras_value") {
+                    w.value = currentImageInfo.lora_info || activeSelectedLora;
+                }
                 if (w.name === "config_value") w.value = configInput.value.trim();
                 if (w.name === "source_value") w.value = sourceInput.value.trim();
                 if (w.name === "tag_value") w.value = tagInput.value.trim();
@@ -289,8 +339,17 @@ app.registerExtension({
             lightboxIndexBadge.innerText = indexStr;
         }
 
+        function updateExampleContainerTitle() {
+            const modelInfo = currentImageInfo.render_model || activeSelectedModel || "undefined";
+            const rawLoraInfo = currentImageInfo.lora_info || "";
+            const formattedLoraInfo = rawLoraInfo ? rawLoraInfo.split(',').map(l => formatLoraDisplayName(l.trim())).filter(Boolean).join(', ') : "None";
+            const resStr = (currentImageInfo.width && currentImageInfo.height) ? `${currentImageInfo.width}×${currentImageInfo.height}` : "Unknown";
+
+            exampleContainer.title = `Image Info (Double-click to preview):\nResolution: ${resStr}\nModel: ${modelInfo}\nLoras: ${formattedLoraInfo}\nSteps: ${currentImageInfo.steps}\nCFG: ${currentImageInfo.cfg}\nDenoise: ${currentImageInfo.denoise}\nSeed: ${currentImageInfo.seed}`;
+        }
+
         function setImageInfo(info, isEmbedded = false) {
-            currentImageInfo = info || { image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined" };
+            currentImageInfo = info || { image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined", lora_info: "" };
             const imgUrl = currentImageInfo.image || "";
             if (imgUrl) {
                 exampleThumbImg.src = getProxiedImageUrl(imgUrl);
@@ -310,10 +369,7 @@ app.registerExtension({
             lightboxEmbedCheck.checked = isEmbedded;
             lightboxEmbedLabelText.innerText = isEmbedded ? "Embed (ON)" : "Embed (OFF)";
 
-            const modelInfo = currentImageInfo.render_model || activeSelectedModel || "undefined";
-            const resStr = (currentImageInfo.width && currentImageInfo.height) ? `${currentImageInfo.width}×${currentImageInfo.height}` : "Unknown";
-            
-            exampleContainer.title = `Image Info (Double-click to preview):\nResolution: ${resStr}\nModel: ${modelInfo}\nSteps: ${currentImageInfo.steps}\nCFG: ${currentImageInfo.cfg}\nDenoise: ${currentImageInfo.denoise}\nSeed: ${currentImageInfo.seed}`;
+            updateExampleContainerTitle();
             updateBackendWidgets();
         }
 
@@ -326,6 +382,7 @@ app.registerExtension({
             updateCounters(promptText);
             updateStarButtonState();
             updateSelectedPromptProperty();
+            updateDirtyStateUI();
         }
 
         function updateStarButtonState() {
@@ -339,7 +396,6 @@ app.registerExtension({
             }
         }
 
-        // --- MASTER CONTAINER ---
         const container = document.createElement("div");
         container.style.position = "relative";
         container.style.display = "flex";
@@ -356,7 +412,6 @@ app.registerExtension({
         container.style.height = "100%";
         container.style.overflow = "hidden";
 
-        // --- TOP SECTION WRAPPER ---
         const topSectionWrapper = document.createElement("div");
         topSectionWrapper.style.display = "flex";
         topSectionWrapper.style.flexDirection = "column";
@@ -378,7 +433,6 @@ app.registerExtension({
         };
         statusBar.style.color = "#4ade80";
 
-        // --- LIGHTBOX OVERLAY ---
         const lightboxOverlay = document.createElement("div");
         lightboxOverlay.tabIndex = 0;
         lightboxOverlay.style.position = "absolute";
@@ -492,6 +546,7 @@ app.registerExtension({
             const item = localDb[selectedIndex];
             const transferData = createPromptTransferPayload(item, node.properties.master_root, getInstanceUuid());
             e.dataTransfer.setData("application/rsl-prompt-transfer", JSON.stringify(transferData));
+            e.dataTransfer.setData("text/plain", JSON.stringify(transferData));
             e.dataTransfer.effectAllowed = "copy";
         };
 
@@ -602,14 +657,19 @@ app.registerExtension({
         hudMetaRow2.appendChild(hudConfigInput);
         hudMetaRow2.appendChild(hudTagsInput);
 
-        hudPromptArea.oninput = () => { activeTextarea.value = hudPromptArea.value; updateBackendWidgets(); updateCounters(hudPromptArea.value); };
-        hudNegArea.oninput = () => { activeNegativeTextarea.value = hudNegArea.value; updateBackendWidgets(); };
-        hudCatInput.oninput = () => { activeSelectedCategory = hudCatInput.value; updateBackendWidgets(); };
-        hudModelInput.oninput = () => { activeSelectedModel = hudModelInput.value; updateBackendWidgets(); };
-        hudSourceInput.oninput = () => { sourceInput.value = hudSourceInput.value; updateBackendWidgets(); };
-        hudLorasInput.oninput = () => { lorasInput.value = hudLorasInput.value; updateBackendWidgets(); };
-        hudConfigInput.oninput = () => { configInput.value = hudConfigInput.value; updateBackendWidgets(); };
-        hudTagsInput.oninput = () => { tagInput.value = hudTagsInput.value; updateBackendWidgets(); };
+        hudPromptArea.oninput = () => { activeTextarea.value = hudPromptArea.value; updateBackendWidgets(); updateCounters(hudPromptArea.value); updateDirtyStateUI(); };
+        hudNegArea.oninput = () => { activeNegativeTextarea.value = hudNegArea.value; updateBackendWidgets(); updateDirtyStateUI(); };
+        hudCatInput.oninput = () => { activeSelectedCategory = hudCatInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
+        hudModelInput.oninput = () => { activeSelectedModel = hudModelInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
+        hudSourceInput.oninput = () => { sourceInput.value = hudSourceInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
+        hudLorasInput.oninput = () => {
+            activeSelectedLora = hudLorasInput.value;
+            currentImageInfo.lora_info = hudLorasInput.value;
+            updateBackendWidgets();
+            updateDirtyStateUI();
+        };
+        hudConfigInput.oninput = () => { configInput.value = hudConfigInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
+        hudTagsInput.oninput = () => { tagInput.value = hudTagsInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
 
         lightboxHud.appendChild(hudPromptTitle);
         lightboxHud.appendChild(hudPromptArea);
@@ -764,7 +824,9 @@ app.registerExtension({
             hudCatInput.value = activeSelectedCategory;
             hudModelInput.value = activeSelectedModel;
             hudSourceInput.value = sourceInput.value;
-            hudLorasInput.value = lorasInput.value;
+
+            hudLorasInput.value = currentImageInfo.lora_info || activeSelectedLora || "";
+
             hudConfigInput.value = configInput.value;
             hudTagsInput.value = tagInput.value;
             lightboxEmbedCheck.checked = embedCheck.checked;
@@ -870,10 +932,13 @@ app.registerExtension({
             activeNegativeTextarea.value = hudNegArea.value;
             activeSelectedCategory = hudCatInput.value || "General";
             activeSelectedModel = hudModelInput.value || "undefined";
+            activeSelectedLora = hudLorasInput.value || "";
             sourceInput.value = hudSourceInput.value;
-            lorasInput.value = hudLorasInput.value;
             configInput.value = hudConfigInput.value;
             tagInput.value = hudTagsInput.value;
+
+            currentImageInfo.lora_info = activeSelectedLora;
+            currentImageInfo.render_model = activeSelectedModel;
 
             updateBackendWidgets();
 
@@ -1335,7 +1400,8 @@ app.registerExtension({
                     return lower !== "auto captured" && lower !== "autocaptured";
                 });
                 const currentVal = getActiveVal();
-                displaySpan.innerText = currentVal || headerText;
+                displaySpan.innerText = formatLoraDisplayName(currentVal) || headerText;
+                displayBtn.title = currentVal || "";
 
                 const headerEl = document.createElement("div");
                 headerEl.innerText = headerText;
@@ -1354,6 +1420,7 @@ app.registerExtension({
                     itemRow.style.padding = "4px 8px";
                     itemRow.style.cursor = "pointer";
                     itemRow.style.fontSize = `${promptFontSize}px`;
+                    itemRow.title = item;
                     const rowHighlight = activeTheme.selectedRow || "#3730a3";
                     if (item === currentVal) {
                         itemRow.style.backgroundColor = rowHighlight;
@@ -1364,11 +1431,11 @@ app.registerExtension({
                     itemRow.onmouseleave = () => itemRow.style.backgroundColor = (item === currentVal) ? rowHighlight : "transparent";
 
                     const itemTitle = document.createElement("span");
-                    itemTitle.innerText = item;
+                    itemTitle.innerText = formatLoraDisplayName(item);
                     itemRow.appendChild(itemTitle);
 
                     const nonDeletable = isModelDropdown ? "undefined" : "General";
-                    if (item !== nonDeletable) {
+                    if (item !== nonDeletable && item !== "") {
                         const itemTrashBtn = document.createElement("button");
                         itemTrashBtn.innerText = "🗑️";
                         itemTrashBtn.style.background = "none";
@@ -1433,7 +1500,6 @@ app.registerExtension({
             document.querySelectorAll(".rsl-custom-dropdown").forEach(el => el.style.display = "none");
         });
 
-        // --- CONTROLS AND BUTTONS TOOLBAR ---
         const topToolbar = document.createElement("div");
         topToolbar.style.display = "flex";
         topToolbar.style.justifyContent = "space-between";
@@ -1697,7 +1763,6 @@ app.registerExtension({
             });
         }
 
-        // --- PROMPT GROUP CONTAINER (POSITIVE & NEGATIVE PROMPTS) ---
         const promptGroupContainer = document.createElement("div");
         promptGroupContainer.style.display = "flex";
         promptGroupContainer.style.flexDirection = "column";
@@ -1768,7 +1833,6 @@ app.registerExtension({
         exampleCol.style.alignItems = "center";
         exampleCol.style.flexShrink = "0";
 
-        // Resolution label displayed right above the thumbnail preview
         const resolutionLabel = document.createElement("div");
         resolutionLabel.style.fontSize = "9px";
         resolutionLabel.style.color = activeTheme.blueBoxTitle || "#38bdf8";
@@ -1812,6 +1876,7 @@ app.registerExtension({
                 resolutionLabel.innerText = resStr;
                 currentImageInfo.width = exampleThumbImg.naturalWidth;
                 currentImageInfo.height = exampleThumbImg.naturalHeight;
+                updateExampleContainerTitle();
             } else {
                 resolutionLabel.innerText = "";
             }
@@ -1839,6 +1904,7 @@ app.registerExtension({
         embedCheck.onchange = (e) => {
             e.stopPropagation();
             embedLabelText.innerText = embedCheck.checked ? "Embed Image (ON)" : "Embed Image (OFF)";
+            updateDirtyStateUI();
         };
 
         embedLabel.appendChild(embedCheck);
@@ -1860,37 +1926,51 @@ app.registerExtension({
             e.stopPropagation();
             exampleContainer.style.borderColor = activeTheme.blueBoxBorder;
 
-            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                const file = e.dataTransfer.files[0];
-                const reader = new FileReader();
-                reader.onload = async (event) => {
-                    currentImageInfo.image = event.target.result;
-                    setImageInfo(currentImageInfo, embedCheck.checked);
-                    setStatus("Loaded dropped image file!");
-                };
-                reader.readAsDataURL(file);
-                return;
-            }
+            const customBundle = e.dataTransfer.getData("application/rsl-preview-bundle") ||
+                e.dataTransfer.getData("application/rsl-prompt-transfer") ||
+                e.dataTransfer.getData("text/plain");
 
-            const customBundle = e.dataTransfer.getData("application/rsl-preview-bundle");
             if (customBundle) {
                 try {
                     const parsed = JSON.parse(customBundle);
-                    currentImageInfo = parsed.image_info || currentImageInfo;
-                    const imgUrl = parsed.image || "";
+                    const droppedImgInfo = parsed.image_info || {};
+                    const imgUrl = parsed.image || droppedImgInfo.image || "";
 
-                    configInput.value = `Steps: ${currentImageInfo.steps}, CFG: ${currentImageInfo.cfg}, Denoise: ${currentImageInfo.denoise}, Seed: ${currentImageInfo.seed}`;
-                    const droppedModel = parsed.render_model || (parsed.image_info && parsed.image_info.render_model);
-                    if (droppedModel) setModelValue(droppedModel);
+                    const droppedConfig = parsed.config || droppedImgInfo.config || `Steps: ${droppedImgInfo.steps || 20}, CFG: ${droppedImgInfo.cfg || 8.0}, Denoise: ${droppedImgInfo.denoise || 1.0}, Seed: ${droppedImgInfo.seed || 0}`;
+                    configInput.value = droppedConfig;
 
+                    const droppedModel = parsed.model || parsed.render_model || droppedImgInfo.model || droppedImgInfo.render_model || "undefined";
+                    setModelValue(droppedModel);
+
+                    const rawDroppedLoraInfo = parsed.lora_info || droppedImgInfo.lora_info || "";
+                    setLoraInfo(rawDroppedLoraInfo);
+
+                    currentImageInfo = {
+                        image: imgUrl,
+                        steps: droppedImgInfo.steps ?? 20,
+                        cfg: droppedImgInfo.cfg ?? 8.0,
+                        denoise: droppedImgInfo.denoise ?? 1.0,
+                        seed: droppedImgInfo.seed ?? 0,
+                        render_model: droppedModel,
+                        lora_info: rawDroppedLoraInfo,
+                        width: droppedImgInfo.width,
+                        height: droppedImgInfo.height
+                    };
+
+                    const forceEmbedded = Boolean(parsed.is_embedded && imgUrl.startsWith("data:"));
+                    embedCheck.checked = forceEmbedded;
+                    embedLabelText.innerText = forceEmbedded ? "Embed Image (ON)" : "Embed Image (OFF)";
+
+                    setImageInfo(currentImageInfo, forceEmbedded);
                     updateBackendWidgets();
-                    currentImageInfo.image = imgUrl;
-                    setImageInfo(currentImageInfo, embedCheck.checked);
+                    updateDirtyStateUI();
 
                     if (selectedIndex !== null && localDb[selectedIndex]) {
                         localDb[selectedIndex].image_info = currentImageInfo;
-                        localDb[selectedIndex].config = configInput.value;
-                        if (droppedModel) localDb[selectedIndex].model = droppedModel;
+                        localDb[selectedIndex].config = droppedConfig;
+                        localDb[selectedIndex].model = droppedModel;
+                        localDb[selectedIndex].lora_info = rawDroppedLoraInfo;
+
                         await api.fetchApi("/prompt_tracker/update", {
                             method: "POST",
                             body: JSON.stringify({
@@ -1898,9 +1978,10 @@ app.registerExtension({
                                 id: localDb[selectedIndex].id,
                                 index: selectedIndex,
                                 image_info: currentImageInfo,
-                                is_embedded: embedCheck.checked,
-                                config: configInput.value,
-                                model: droppedModel || activeSelectedModel,
+                                is_embedded: forceEmbedded,
+                                config: droppedConfig,
+                                model: droppedModel,
+                                lora_info: rawDroppedLoraInfo,
                                 master_root: node.properties.master_root,
                                 instance_uuid: getInstanceUuid()
                             })
@@ -1909,10 +1990,36 @@ app.registerExtension({
                         const vizPos = visible.findIndex(r => r.originalIndex === selectedIndex);
                         if (vizPos !== -1) selectItemByIndex(vizPos, visible);
                     }
-                    setStatus(droppedModel ? `Loaded preview & mapped model: '${droppedModel}'` : "Loaded preview bundle!");
+                    setStatus(rawDroppedLoraInfo ? `Loaded preview & mapped loras: '${rawDroppedLoraInfo}'` : "Loaded preview bundle (0 LoRAs)");
+                    return;
                 } catch (err) {
-                    console.error("Failed to parse rsl-preview-bundle", err);
+                    console.error("Failed to parse dropped bundle/transfer data", err);
                 }
+            }
+
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    currentImageInfo = {
+                        image: event.target.result,
+                        steps: 20,
+                        cfg: 8.0,
+                        denoise: 1.0,
+                        seed: 0,
+                        render_model: activeSelectedModel,
+                        lora_info: ""
+                    };
+                    setLoraInfo("");
+
+                    embedCheck.checked = false;
+                    embedLabelText.innerText = "Embed Image (OFF)";
+
+                    setImageInfo(currentImageInfo, false);
+                    updateDirtyStateUI();
+                    setStatus("Loaded dropped image file as file reference!");
+                };
+                reader.readAsDataURL(file);
             }
         };
 
@@ -1929,7 +2036,7 @@ app.registerExtension({
         activeTextarea.style.fontFamily = "monospace, sans-serif";
         activeTextarea.style.boxSizing = "border-box";
 
-        activeTextarea.oninput = () => { updateBackendWidgets(); updateCounters(activeTextarea.value); };
+        activeTextarea.oninput = () => { updateBackendWidgets(); updateCounters(activeTextarea.value); updateDirtyStateUI(); };
 
         activeContentRow.appendChild(exampleCol);
         activeContentRow.appendChild(activeTextarea);
@@ -1937,7 +2044,6 @@ app.registerExtension({
         activePromptBox.appendChild(activeContentRow);
         promptGroupContainer.appendChild(activePromptBox);
 
-        // --- INNER DRAG DIVIDER (ABSOLUTE DRAG TRACKING WITH START HEIGHTS) ---
         let startPosHeight = node.properties.promptBoxHeight;
         let startNegHeight = node.properties.negativeBoxHeight;
 
@@ -1993,13 +2099,12 @@ app.registerExtension({
         activeNegativeTextarea.style.fontFamily = "monospace, sans-serif";
         activeNegativeTextarea.style.boxSizing = "border-box";
 
-        activeNegativeTextarea.oninput = () => updateBackendWidgets();
+        activeNegativeTextarea.oninput = () => { updateBackendWidgets(); updateDirtyStateUI(); };
 
         activeNegativeBox.appendChild(activeNegTitle);
         activeNegativeBox.appendChild(activeNegativeTextarea);
         promptGroupContainer.appendChild(activeNegativeBox);
 
-        // --- ASSEMBLE TOP SECTION WRAPPER ---
         topSectionWrapper.appendChild(topToolbar);
         topSectionWrapper.appendChild(masterRow);
         topSectionWrapper.appendChild(dbRow);
@@ -2007,7 +2112,6 @@ app.registerExtension({
 
         container.appendChild(topSectionWrapper);
 
-        // --- MAIN OUTER DRAG DIVIDER (ABSOLUTE DRAG TRACKING) ---
         let startTopHeight = node.properties.topSectionHeight;
 
         const mainOuterResizeDivider = createResizeDivider("Drag to resize Top Control Panel vs Prompt List Area", activeTheme.negBoxBorder || "#f472b6", (totalDy) => {
@@ -2026,7 +2130,6 @@ app.registerExtension({
 
         container.appendChild(mainOuterResizeDivider);
 
-        // --- INPUT & ACTION ROW WRAPPER ---
         const inputAreaWrapper = document.createElement("div");
         inputAreaWrapper.style.display = "flex";
         inputAreaWrapper.style.flexDirection = "column";
@@ -2063,15 +2166,17 @@ app.registerExtension({
             if (e) e.stopPropagation();
             activeTextarea.value = "";
             activeNegativeTextarea.value = "";
-            lorasInput.value = "";
+            setLoraInfo("");
+            currentImageInfo = { image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined", lora_info: "" };
             configInput.value = "";
             sourceInput.value = "";
             tagInput.value = "";
-            setImageInfo({ image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined" }, false);
+            setImageInfo(currentImageInfo, false);
             selectedIndex = null;
             setActiveSelection("", "", null, false);
             updateBackendWidgets();
             renderList();
+            updateDirtyStateUI();
             setStatus("Cleared prompt input fields");
         };
 
@@ -2079,13 +2184,13 @@ app.registerExtension({
             if (e) e.stopPropagation();
             const category = activeSelectedCategory;
             const model = activeSelectedModel;
-            const loras = lorasInput.value.trim();
+            const lora_info = currentImageInfo.lora_info || "";
             const config = configInput.value.trim();
             const source = sourceInput.value.trim();
             const tags = tagInput.value.trim();
             const prompt = activeTextarea.value;
             const negative = activeNegativeTextarea.value;
-            let image_info = currentImageInfo;
+            let image_info = { ...currentImageInfo, lora_info: lora_info, render_model: model };
             const is_embedded = embedCheck.checked;
 
             if (is_embedded && image_info.image && !image_info.image.startsWith("data:") && !image_info.image.startsWith("http")) {
@@ -2111,7 +2216,7 @@ app.registerExtension({
                     db: currentDbName,
                     category,
                     model,
-                    loras,
+                    lora_info,
                     config,
                     source,
                     tags,
@@ -2134,6 +2239,7 @@ app.registerExtension({
                 renderList();
                 if (categoryDropdown.updateDisplay) categoryDropdown.updateDisplay();
                 if (modelDropdown.updateDisplay) modelDropdown.updateDisplay();
+                if (lorasDropdown.updateDisplay) lorasDropdown.updateDisplay();
 
                 const visible = getVisibleRows();
                 const vizPos = visible.findIndex(r => r.originalIndex === newIdx);
@@ -2143,6 +2249,7 @@ app.registerExtension({
                     selectedIndex = newIdx;
                     setActiveSelection(prompt, negative, image_info, is_embedded);
                 }
+                updateDirtyStateUI();
                 setStatus("Added new prompt entry");
             }
         };
@@ -2156,13 +2263,13 @@ app.registerExtension({
 
             const category = activeSelectedCategory;
             const model = activeSelectedModel;
-            const loras = lorasInput.value.trim();
+            const lora_info = currentImageInfo.lora_info || "";
             const config = configInput.value.trim();
             const source = sourceInput.value.trim();
             const tags = tagInput.value.trim();
             const prompt = activeTextarea.value;
             const negative = activeNegativeTextarea.value;
-            let image_info = currentImageInfo;
+            let image_info = { ...currentImageInfo, lora_info: lora_info, render_model: model };
             const is_embedded = embedCheck.checked;
 
             if (is_embedded && image_info.image && !image_info.image.startsWith("data:") && !image_info.image.startsWith("http")) {
@@ -2194,7 +2301,7 @@ app.registerExtension({
                         index: targetIndex,
                         category,
                         model,
-                        loras,
+                        lora_info,
                         config,
                         source,
                         tags,
@@ -2228,6 +2335,7 @@ app.registerExtension({
                             selectedIndex = targetIndex;
                             setActiveSelection(prompt, negative, image_info, is_embedded);
                         }
+                        updateDirtyStateUI();
                         setStatus(`Updated prompt #${targetIndex + 1} in place`);
                     }
                 }
@@ -2246,7 +2354,7 @@ app.registerExtension({
             "-- Select Category --",
             () => Array.from(dbCategories).sort(),
             () => activeSelectedCategory,
-            (selCat) => { activeSelectedCategory = selCat; updateBackendWidgets(); },
+            (selCat) => { activeSelectedCategory = selCat; updateBackendWidgets(); updateDirtyStateUI(); },
             () => {
                 showThemedModal("Enter New Category Name:", "", null, (newCat) => {
                     if (newCat) {
@@ -2254,6 +2362,7 @@ app.registerExtension({
                         activeSelectedCategory = newCat;
                         updateBackendWidgets();
                         updateCategoryDropdowns();
+                        updateDirtyStateUI();
                     }
                 }, true);
             },
@@ -2267,6 +2376,7 @@ app.registerExtension({
                     });
                     if (activeSelectedCategory === catToDelete) { activeSelectedCategory = "General"; updateBackendWidgets(); }
                     await fetchAndRender(false);
+                    updateDirtyStateUI();
                 };
                 if (isShift) await performDel();
                 else showThemedModal(`Delete Category '${catToDelete}'?`, "", null, performDel, false);
@@ -2278,13 +2388,13 @@ app.registerExtension({
         sourceInput.placeholder = "Source (e.g. Civitai)";
         sourceInput.style.flex = "1";
         styleInput(sourceInput, activeTheme);
-        sourceInput.oninput = () => updateBackendWidgets();
+        sourceInput.oninput = () => { updateBackendWidgets(); updateDirtyStateUI(); };
 
         const tagInput = document.createElement("input");
         tagInput.placeholder = "Tags (e.g. portrait)";
         tagInput.style.flex = "1";
         styleInput(tagInput, activeTheme);
-        tagInput.oninput = () => updateBackendWidgets();
+        tagInput.oninput = () => { updateBackendWidgets(); updateDirtyStateUI(); };
 
         metadataRow.appendChild(categoryDropdown);
         metadataRow.appendChild(sourceInput);
@@ -2299,14 +2409,21 @@ app.registerExtension({
             "-- Select Model --",
             () => Array.from(dbModels).sort(),
             () => activeSelectedModel,
-            (selMod) => { activeSelectedModel = selMod; updateBackendWidgets(); },
+            (selMod) => {
+                activeSelectedModel = selMod;
+                currentImageInfo.render_model = selMod;
+                updateBackendWidgets();
+                updateDirtyStateUI();
+            },
             () => {
                 showThemedModal("Enter New Model Name:", "", null, (newMod) => {
                     if (newMod) {
                         dbModels.add(newMod);
                         activeSelectedModel = newMod;
+                        currentImageInfo.render_model = newMod;
                         updateBackendWidgets();
                         updateCategoryDropdowns();
+                        updateDirtyStateUI();
                     }
                 }, true);
             },
@@ -2318,8 +2435,13 @@ app.registerExtension({
                         method: "POST",
                         body: JSON.stringify({ db: currentDbName, model: modelToDelete, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                     });
-                    if (activeSelectedModel === modelToDelete) { activeSelectedModel = "undefined"; updateBackendWidgets(); }
+                    if (activeSelectedModel === modelToDelete) {
+                        activeSelectedModel = "undefined";
+                        currentImageInfo.render_model = "undefined";
+                        updateBackendWidgets();
+                    }
                     await fetchAndRender(false);
+                    updateDirtyStateUI();
                 };
                 if (isShift) await performDel();
                 else showThemedModal(`Delete Model '${modelToDelete}'?`, "", null, performDel, false);
@@ -2327,20 +2449,51 @@ app.registerExtension({
             true
         );
 
-        const lorasInput = document.createElement("input");
-        lorasInput.placeholder = "Loras (e.g. detail_slider)";
-        lorasInput.style.flex = "1";
-        styleInput(lorasInput, activeTheme);
-        lorasInput.oninput = () => updateBackendWidgets();
+        const lorasDropdown = createActionDropdown(
+            "-- Select Lora --",
+            () => Array.from(dbLoras),
+            () => activeSelectedLora,
+            (selLora) => {
+                activeSelectedLora = selLora;
+                updateBackendWidgets();
+                updateDirtyStateUI();
+            },
+            () => {
+                showThemedModal("Enter New Lora Name:", "", null, (newLora) => {
+                    if (newLora !== null && newLora.trim()) {
+                        dbLoras.add(newLora.trim());
+                        activeSelectedLora = newLora.trim();
+                        const allLoras = Array.from(dbLoras).filter(Boolean);
+                        setLoraInfo(allLoras.join(", "));
+                        updateDirtyStateUI();
+                    }
+                }, true);
+            },
+            async (loraToDelete, isShift) => {
+                const performDel = async () => {
+                    dbLoras.delete(loraToDelete);
+                    if (activeSelectedLora === loraToDelete) {
+                        const remaining = Array.from(dbLoras).filter(Boolean);
+                        activeSelectedLora = remaining.length > 0 ? remaining[0] : "";
+                    }
+                    const allLoras = Array.from(dbLoras).filter(Boolean);
+                    setLoraInfo(allLoras.join(", "));
+                    updateDirtyStateUI();
+                };
+                if (isShift) await performDel();
+                else showThemedModal(`Delete Lora '${loraToDelete}'?`, "", null, performDel, false);
+            },
+            false
+        );
 
         const configInput = document.createElement("input");
         configInput.placeholder = "Config (e.g. Steps: 25)";
         configInput.style.flex = "1";
         styleInput(configInput, activeTheme);
-        configInput.oninput = () => updateBackendWidgets();
+        configInput.oninput = () => { updateBackendWidgets(); updateDirtyStateUI(); };
 
         pipelineRow.appendChild(modelDropdown);
-        pipelineRow.appendChild(lorasInput);
+        pipelineRow.appendChild(lorasDropdown);
         pipelineRow.appendChild(configInput);
 
         function setItemCategory(catName) {
@@ -2355,8 +2508,24 @@ app.registerExtension({
             const target = modelName || "undefined";
             dbModels.add(target);
             activeSelectedModel = target;
+            currentImageInfo.render_model = target;
             updateBackendWidgets();
             updateCategoryDropdowns();
+        }
+
+        function setLoraInfo(loraInfoName) {
+            const target = loraInfoName || "";
+            const individualLoras = target ? target.split(/,\s*(?![^()]*\))/).map(s => s.trim()).filter(Boolean) : [];
+
+            dbLoras = new Set([""]);
+            individualLoras.forEach(l => {
+                dbLoras.add(l);
+            });
+
+            activeSelectedLora = individualLoras.length > 0 ? individualLoras[0] : "";
+            currentImageInfo.lora_info = target;
+            updateBackendWidgets();
+            if (lorasDropdown.updateDisplay) lorasDropdown.updateDisplay();
         }
 
         const searchRow = document.createElement("div");
@@ -2425,7 +2594,6 @@ app.registerExtension({
         inputAreaWrapper.appendChild(searchRow);
         container.appendChild(inputAreaWrapper);
 
-        // --- BOTTOM PROMPT LIST AREA ---
         const listContainer = document.createElement("div");
         listContainer.tabIndex = 0;
         listContainer.style.flex = "1 1 0px";
@@ -2473,17 +2641,24 @@ app.registerExtension({
                     return;
                 }
 
+                const droppedLoraInfo = droppedPromptData.lora_info || (droppedPromptData.image_info && droppedPromptData.image_info.lora_info) || "";
+                const droppedModel = droppedPromptData.model || droppedPromptData.render_model || "undefined";
+
                 const payload = {
                     db: currentDbName,
                     category: droppedPromptData.category || "General",
-                    model: droppedPromptData.model || "undefined",
-                    loras: droppedPromptData.loras || "",
+                    model: droppedModel,
+                    lora_info: droppedLoraInfo,
                     config: droppedPromptData.config || "",
                     source: droppedPromptData.source || "Cross-Tracker Drop",
                     tags: droppedPromptData.tags || "",
                     prompt: droppedPromptData.prompt || "",
                     negative: droppedPromptData.negative || "",
-                    image_info: droppedPromptData.image_info || { image: "" },
+                    image_info: {
+                        ...(droppedPromptData.image_info || { image: "" }),
+                        lora_info: droppedLoraInfo,
+                        render_model: droppedModel
+                    },
                     is_embedded: droppedPromptData.is_embedded || false,
                     starred: droppedPromptData.starred || false,
                     master_root: node.properties.master_root,
@@ -2531,7 +2706,7 @@ app.registerExtension({
                 if (imageFilterMode === "image" && !hasImg) return;
                 if (imageFilterMode === "no_image" && hasImg) return;
                 if (terms.length > 0) {
-                    const combined = `${item.category || ''} ${item.model || ''} ${item.loras || ''} ${item.tags || ''} ${item.prompt || ''} ${item.negative || ''} ${item.source || ''}`.toLowerCase();
+                    const combined = `${item.category || ''} ${item.model || ''} ${item.lora_info || ''} ${item.image_info?.lora_info || ''} ${item.tags || ''} ${item.prompt || ''} ${item.negative || ''} ${item.source || ''}`.toLowerCase();
                     if (!terms.every(term => combined.includes(term))) return;
                 }
                 const vizIdx = visibleRowsMap.length;
@@ -2584,8 +2759,8 @@ app.registerExtension({
             const wiredPrompt = e.detail.prompt || "";
             const wiredNeg = e.detail.negative || "";
             const wiredModel = e.detail.render_model || activeSelectedModel;
+            const wiredLoraInfo = e.detail.lora_info || "";
             const category = activeSelectedCategory;
-            const loras = lorasInput.value.trim();
             const config = e.detail.config || configInput.value.trim();
             const source = e.detail.source || "Auto-Prompt";
             const tags = tagInput.value.trim();
@@ -2593,7 +2768,7 @@ app.registerExtension({
             const is_embedded = false;
 
             try {
-                let final_image_info = image_info;
+                let final_image_info = { ...image_info, lora_info: wiredLoraInfo, render_model: wiredModel };
                 if (is_embedded && final_image_info.image && !final_image_info.image.startsWith("data:") && !final_image_info.image.startsWith("http")) {
                     const resImg = await fetch(getProxiedImageUrl(final_image_info.image));
                     const blob = await resImg.blob();
@@ -2611,7 +2786,7 @@ app.registerExtension({
                         db: currentDbName,
                         category,
                         model: wiredModel,
-                        loras,
+                        lora_info: wiredLoraInfo,
                         config,
                         source,
                         tags,
@@ -2634,6 +2809,7 @@ app.registerExtension({
                     renderList();
                     if (categoryDropdown.updateDisplay) categoryDropdown.updateDisplay();
                     if (modelDropdown.updateDisplay) modelDropdown.updateDisplay();
+                    if (lorasDropdown.updateDisplay) lorasDropdown.updateDisplay();
 
                     const visible = getVisibleRows();
                     const vizPos = visible.findIndex(r => r.originalIndex === newIdx);
@@ -2691,7 +2867,7 @@ app.registerExtension({
                             const isEmb = newItem.is_embedded !== undefined ? newItem.is_embedded : true;
                             setItemCategory(newItem.category || "General");
                             setModelValue(newItem.model || "undefined");
-                            lorasInput.value = newItem.loras || "";
+                            setLoraInfo(newItem.lora_info || newItem.image_info?.lora_info || "");
                             configInput.value = newItem.config || "";
                             sourceInput.value = newItem.source || "";
                             tagInput.value = newItem.tags || "";
@@ -2719,7 +2895,7 @@ app.registerExtension({
                                 const isEmb = newItem.is_embedded !== undefined ? newItem.is_embedded : true;
                                 setItemCategory(newItem.category || "General");
                                 setModelValue(newItem.model || "undefined");
-                                lorasInput.value = newItem.loras || "";
+                                setLoraInfo(newItem.lora_info || newItem.image_info?.lora_info || "");
                                 configInput.value = newItem.config || "";
                                 sourceInput.value = newItem.source || "";
                                 tagInput.value = newItem.tags || "";
@@ -2736,7 +2912,7 @@ app.registerExtension({
                         const isEmb = updatedItem.is_embedded !== undefined ? updatedItem.is_embedded : true;
                         setItemCategory(updatedItem.category || "General");
                         setModelValue(updatedItem.model || "undefined");
-                        lorasInput.value = updatedItem.loras || "";
+                        setLoraInfo(updatedItem.lora_info || updatedItem.image_info?.lora_info || "");
                         configInput.value = updatedItem.config || "";
                         sourceInput.value = updatedItem.source || "";
                         tagInput.value = updatedItem.tags || "";
@@ -2777,12 +2953,22 @@ app.registerExtension({
 
             setItemCategory(item.category || "General");
             setModelValue(item.model || "undefined");
-            lorasInput.value = item.loras || "";
+
+            const freshLoraInfo = item.lora_info || item.image_info?.lora_info || "";
+            setLoraInfo(freshLoraInfo);
+
             configInput.value = item.config || "";
             sourceInput.value = item.source || "";
             tagInput.value = item.tags || "";
+
+            currentImageInfo = {
+                ...(item.image_info || { image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: item.model || "undefined" }),
+                lora_info: freshLoraInfo,
+                render_model: item.model || item.image_info?.render_model || "undefined"
+            };
+
             const isEmb = item.is_embedded !== undefined ? item.is_embedded : true;
-            setActiveSelection(item.prompt || "", item.negative || "", item.image_info || null, isEmb);
+            setActiveSelection(item.prompt || "", item.negative || "", currentImageInfo, isEmb);
 
             const children = Array.from(listContainer.children);
             visibleRowsMap.forEach((r, vizIdx) => {
@@ -2851,6 +3037,7 @@ app.registerExtension({
                     e.stopPropagation();
                     const transferData = createPromptTransferPayload(item, node.properties.master_root, getInstanceUuid());
                     e.dataTransfer.setData("application/rsl-prompt-transfer", JSON.stringify(transferData));
+                    e.dataTransfer.setData("text/plain", JSON.stringify(transferData));
                     e.dataTransfer.effectAllowed = "copy";
                 };
 

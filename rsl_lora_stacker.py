@@ -12,7 +12,6 @@ class RSLLoraStackerNode:
         return {
             "required": {
                 "model": ("MODEL",),
-                "clip": ("CLIP",),
                 "loras_json": (
                     "STRING",
                     {
@@ -21,6 +20,9 @@ class RSLLoraStackerNode:
                     },
                 ),
             },
+            "optional": {
+                "clip": ("CLIP",),
+            },
         }
 
     RETURN_TYPES = ("MODEL", "CLIP", "STRING")
@@ -28,7 +30,7 @@ class RSLLoraStackerNode:
     FUNCTION = "stack_loras"
     CATEGORY = "rsl/utils"
 
-    def stack_loras(self, model, clip, loras_json="[]"):
+    def stack_loras(self, model, clip=None, loras_json="[]"):
         try:
             lora_list = json.loads(loras_json)
         except Exception:
@@ -52,13 +54,29 @@ class RSLLoraStackerNode:
                 continue
 
             try:
-                current_model, current_clip = loader.load_lora(
-                    current_model,
-                    current_clip,
-                    lora_name,
-                    strength_model,
-                    strength_clip,
-                )
+                # If clip is None, some standard loaders require a clip or fail if passed None.
+                # LoraLoader handles clip if it's provided, but if clip is optional and not connected,
+                # we can either pass None or skip clip application. Let's handle it cleanly:
+                if current_clip is not None:
+                    current_model, current_clip = loader.load_lora(
+                        current_model,
+                        current_clip,
+                        lora_name,
+                        strength_model,
+                        strength_clip,
+                    )
+                else:
+                    # If no clip is connected, we only patch the model using a dummy clip or separate calls if supported,
+                    # or pass None depending on how LoraLoader handles it. Standard LoraLoader expects clip.
+                    # Safest fallback for model-only patching:
+                    current_model, _ = loader.load_lora(
+                        current_model,
+                        None,
+                        lora_name,
+                        strength_model,
+                        0.0,  # zero clip strength if clip is absent
+                    )
+
                 active_lora_meta.append(
                     f"{lora_name} (M:{strength_model}, C:{strength_clip})"
                 )
