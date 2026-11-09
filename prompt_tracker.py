@@ -357,7 +357,7 @@ class PromptTrackerNode:
         "prompt",
         "negative",
         "category",
-        "model",
+        "render_model",
         "lora_info",
         "config",
         "source",
@@ -500,7 +500,7 @@ class PromptTrackerNode:
                         "prompt": raw_auto,
                         "negative": final_negative,
                         "category": category_value,
-                        "model": final_model,
+                        "render_model": final_model,
                         "loras": final_loras,
                         "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
                         "source": source_value or "Auto-Prompt",
@@ -521,7 +521,7 @@ class PromptTrackerNode:
             "ui": {
                 "prompt": [final_prompt],
                 "negative_prompt": [final_negative],
-                "model": [final_model],
+                "render_model": [final_model],
                 "loras": [final_loras],
             },
             "result": (
@@ -688,7 +688,7 @@ async def add_prompt(request):
             "prompt": json_data.get("prompt", ""),
             "negative": json_data.get("negative", ""),
             "category": json_data.get("category", "General"),
-            "model": json_data.get("model", "undefined"),
+            "render_model": json_data.get("render_model", "undefined"),
             "loras": json_data.get("loras", "") or json_data.get("lora_info", ""),
             "config": json_data.get("config", ""),
             "source": json_data.get("source", ""),
@@ -754,8 +754,8 @@ async def update_prompt(request):
             existing["category"] = json_data.get(
                 "category", existing.get("category", "General")
             )
-            existing["model"] = json_data.get(
-                "model", existing.get("model", "undefined")
+            existing["render_model"] = json_data.get(
+                "render_model", existing.get("render_model", "undefined")
             )
             existing["loras"] = json_data.get(
                 "loras", existing.get("loras", "")
@@ -1051,8 +1051,8 @@ async def delete_model(request):
         db_data = load_db_file(db_name, active_dir)
 
         for item in db_data:
-            if item.get("model") == model_to_del:
-                item["model"] = "undefined"
+            if item.get("render_model") == model_to_del:
+                item["render_model"] = "undefined"
         save_db_file(db_name, db_data, active_dir)
         broadcast_database_refresh(
             db_name=db_name,

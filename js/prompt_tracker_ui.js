@@ -215,7 +215,7 @@ app.registerExtension({
             const pText = item ? (item.prompt || "") : "";
             const nText = item ? (item.negative || "") : "";
             const cat = item ? (item.category || "General") : "General";
-            const mod = item ? (item.model || "undefined") : "undefined";
+            const mod = item ? (item.render_model || "undefined") : "undefined";
             const loras = item ? (item.lora_info || item.image_info?.lora_info || "") : "";
             const cfg = item ? (item.config || "") : "";
             const src = item ? (item.source || "") : "";
@@ -296,16 +296,14 @@ app.registerExtension({
         function createPromptTransferPayload(item, sourceMasterRoot, sourceUuid) {
             const imgInfo = item.image_info || { steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined", lora_info: "" };
             const rawImg = imgInfo.image || "";
-            // File-based drag-and-drop: pass server path or http URL directly, keeping is_embedded false
             const cleanImg = (rawImg.startsWith("data:") || rawImg.startsWith("http")) ? rawImg : (rawImg || "");
             const resolvedLora = item.lora_info || imgInfo.lora_info || "";
-            const resolvedModel = item.model || imgInfo.model || imgInfo.render_model || "undefined";
+            const resolvedModel = item.render_model || imgInfo.render_model || "undefined";
 
             return {
                 prompt: item.prompt || "",
                 negative: item.negative || "",
                 category: item.category || "General",
-                model: resolvedModel,
                 render_model: resolvedModel,
                 lora_info: resolvedLora,
                 config: item.config || "",
@@ -725,7 +723,7 @@ app.registerExtension({
         hudPromptArea.oninput = () => { activeTextarea.value = hudPromptArea.value; updateBackendWidgets(); updateCounters(hudPromptArea.value); updateDirtyStateUI(); };
         hudNegArea.oninput = () => { activeNegativeTextarea.value = hudNegArea.value; updateBackendWidgets(); updateDirtyStateUI(); };
         hudCatInput.oninput = () => { activeSelectedCategory = hudCatInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
-        hudModelInput.oninput = () => { activeSelectedModel = hudModelInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
+        hudModelInput.oninput = () => { activeSelectedModel = hudModelInput.value; currentImageInfo.render_model = activeSelectedModel; updateBackendWidgets(); updateDirtyStateUI(); };
         hudSourceInput.oninput = () => { sourceInput.value = hudSourceInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
         hudConfigInput.oninput = () => { configInput.value = hudConfigInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
         hudTagsInput.oninput = () => { tagInput.value = hudTagsInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
@@ -1539,15 +1537,21 @@ app.registerExtension({
                 e.stopPropagation();
                 const isVisible = popupList.style.display === "flex";
                 document.querySelectorAll(".rsl-custom-dropdown").forEach(el => el.style.display = "none");
+
                 if (!isVisible) {
                     renderDropdownItems();
 
+                    // 1. Display list first so DOM can measure actual rendered height
                     popupList.style.display = "flex";
+
+                    // 2. Measure actual height and window boundaries
                     const btnRect = displayBtn.getBoundingClientRect();
                     const listHeight = popupList.offsetHeight || 160;
                     const spaceBelow = window.innerHeight - btnRect.bottom;
+                    const spaceAbove = btnRect.top;
 
-                    if (spaceBelow < listHeight && btnRect.top > listHeight) {
+                    // 3. Drop UP if space below is limited OR if space above is greater
+                    if (spaceBelow < listHeight || spaceBelow < spaceAbove) {
                         popupList.style.top = "auto";
                         popupList.style.bottom = "100%";
                         popupList.style.marginBottom = "2px";
@@ -2012,7 +2016,7 @@ app.registerExtension({
                     const droppedConfig = parsed.config || droppedImgInfo.config || `Steps: ${droppedImgInfo.steps || 20}, CFG: ${droppedImgInfo.cfg || 8.0}, Denoise: ${droppedImgInfo.denoise || 1.0}, Seed: ${droppedImgInfo.seed || 0}`;
                     configInput.value = droppedConfig;
 
-                    const droppedModel = parsed.model || parsed.render_model || droppedImgInfo.model || droppedImgInfo.render_model || "undefined";
+                    const droppedModel = parsed.render_model || droppedImgInfo.render_model || "undefined";
                     setModelValue(droppedModel);
 
                     const rawDroppedLoraInfo = parsed.lora_info || droppedImgInfo.lora_info || "";
@@ -2041,7 +2045,7 @@ app.registerExtension({
                     if (selectedIndex !== null && localDb[selectedIndex]) {
                         localDb[selectedIndex].image_info = currentImageInfo;
                         localDb[selectedIndex].config = droppedConfig;
-                        localDb[selectedIndex].model = droppedModel;
+                        localDb[selectedIndex].render_model = droppedModel;
                         localDb[selectedIndex].lora_info = rawDroppedLoraInfo;
 
                         await api.fetchApi("/prompt_tracker/update", {
@@ -2053,7 +2057,7 @@ app.registerExtension({
                                 image_info: currentImageInfo,
                                 is_embedded: forceEmbedded,
                                 config: droppedConfig,
-                                model: droppedModel,
+                                render_model: droppedModel,
                                 lora_info: rawDroppedLoraInfo,
                                 master_root: node.properties.master_root,
                                 instance_uuid: getInstanceUuid()
@@ -2256,14 +2260,14 @@ app.registerExtension({
         addBtn.onclick = async (e) => {
             if (e) e.stopPropagation();
             const category = activeSelectedCategory;
-            const model = activeSelectedModel;
+            const render_model = activeSelectedModel;
             const lora_info = currentImageInfo.lora_info || "";
             const config = configInput.value.trim();
             const source = sourceInput.value.trim();
             const tags = tagInput.value.trim();
             const prompt = activeTextarea.value;
             const negative = activeNegativeTextarea.value;
-            let image_info = { ...currentImageInfo, lora_info: lora_info, render_model: model };
+            let image_info = { ...currentImageInfo, lora_info: lora_info, render_model: render_model };
             const is_embedded = embedCheck.checked;
 
             if (is_embedded && image_info.image && !image_info.image.startsWith("data:") && !image_info.image.startsWith("http")) {
@@ -2288,7 +2292,7 @@ app.registerExtension({
                 body: JSON.stringify({
                     db: currentDbName,
                     category,
-                    model,
+                    render_model,
                     lora_info,
                     config,
                     source,
@@ -2336,14 +2340,14 @@ app.registerExtension({
             }
 
             const category = activeSelectedCategory;
-            const model = activeSelectedModel;
+            const render_model = activeSelectedModel;
             const lora_info = currentImageInfo.lora_info || "";
             const config = configInput.value.trim();
             const source = sourceInput.value.trim();
             const tags = tagInput.value.trim();
             const prompt = activeTextarea.value;
             const negative = activeNegativeTextarea.value;
-            let image_info = { ...currentImageInfo, lora_info: lora_info, render_model: model };
+            let image_info = { ...currentImageInfo, lora_info: lora_info, render_model: render_model };
             const is_embedded = embedCheck.checked;
 
             if (is_embedded && image_info.image && !image_info.image.startsWith("data:") && !image_info.image.startsWith("http")) {
@@ -2374,7 +2378,7 @@ app.registerExtension({
                         id: currentItem ? currentItem.id : null,
                         index: targetIndex,
                         category,
-                        model,
+                        render_model,
                         lora_info,
                         config,
                         source,
@@ -2718,12 +2722,12 @@ app.registerExtension({
                 }
 
                 const droppedLoraInfo = droppedPromptData.lora_info || (droppedPromptData.image_info && droppedPromptData.image_info.lora_info) || "";
-                const droppedModel = droppedPromptData.model || droppedPromptData.render_model || "undefined";
+                const droppedModel = droppedPromptData.render_model || "undefined";
 
                 const payload = {
                     db: currentDbName,
                     category: droppedPromptData.category || "General",
-                    model: droppedModel,
+                    render_model: droppedModel,
                     lora_info: droppedLoraInfo,
                     config: droppedPromptData.config || "",
                     source: droppedPromptData.source || "Cross-Tracker Drop",
@@ -2782,7 +2786,7 @@ app.registerExtension({
                 if (imageFilterMode === "image" && !hasImg) return;
                 if (imageFilterMode === "no_image" && hasImg) return;
                 if (terms.length > 0) {
-                    const combined = `${item.category || ''} ${item.model || ''} ${item.lora_info || ''} ${item.image_info?.lora_info || ''} ${item.tags || ''} ${item.prompt || ''} ${item.negative || ''} ${item.source || ''}`.toLowerCase();
+                    const combined = `${item.category || ''} ${item.render_model || ''} ${item.lora_info || ''} ${item.image_info?.lora_info || ''} ${item.tags || ''} ${item.prompt || ''} ${item.negative || ''} ${item.source || ''}`.toLowerCase();
                     if (!terms.every(term => combined.includes(term))) return;
                 }
                 const vizIdx = visibleRowsMap.length;
@@ -2861,7 +2865,7 @@ app.registerExtension({
                     body: JSON.stringify({
                         db: currentDbName,
                         category,
-                        model: wiredModel,
+                        render_model: wiredModel,
                         lora_info: wiredLoraInfo,
                         config,
                         source,
@@ -2943,7 +2947,7 @@ app.registerExtension({
                             const newItem = localDb[selectedIndex];
                             const isEmb = newItem.is_embedded !== undefined ? newItem.is_embedded : false;
                             setItemCategory(newItem.category || "General");
-                            setModelValue(newItem.model || "undefined");
+                            setModelValue(newItem.render_model || "undefined");
                             setLoraInfo(newItem.lora_info || newItem.image_info?.lora_info || "");
                             configInput.value = newItem.config || "";
                             sourceInput.value = newItem.source || "";
@@ -2971,7 +2975,7 @@ app.registerExtension({
                                 const newItem = localDb[targetIdx];
                                 const isEmb = newItem.is_embedded !== undefined ? newItem.is_embedded : false;
                                 setItemCategory(newItem.category || "General");
-                                setModelValue(newItem.model || "undefined");
+                                setModelValue(newItem.render_model || "undefined");
                                 setLoraInfo(newItem.lora_info || newItem.image_info?.lora_info || "");
                                 configInput.value = newItem.config || "";
                                 sourceInput.value = newItem.source || "";
@@ -2988,7 +2992,7 @@ app.registerExtension({
                         const updatedItem = localDb[selectedIndex];
                         const isEmb = updatedItem.is_embedded !== undefined ? updatedItem.is_embedded : false;
                         setItemCategory(updatedItem.category || "General");
-                        setModelValue(updatedItem.model || "undefined");
+                        setModelValue(updatedItem.render_model || "undefined");
                         setLoraInfo(updatedItem.lora_info || updatedItem.image_info?.lora_info || "");
                         configInput.value = updatedItem.config || "";
                         sourceInput.value = updatedItem.source || "";
@@ -3009,7 +3013,7 @@ app.registerExtension({
             dbModels = new Set(["undefined"]);
             localDb.forEach(item => {
                 if (item.category) dbCategories.add(item.category.trim());
-                if (item.model) dbModels.add(item.model.trim());
+                if (item.render_model) dbModels.add(item.render_model.trim());
             });
             if (categoryDropdown.updateDisplay) categoryDropdown.updateDisplay();
             if (modelDropdown.updateDisplay) modelDropdown.updateDisplay();
@@ -3031,7 +3035,7 @@ app.registerExtension({
             selectedIndex = originalIndex;
 
             setItemCategory(item.category || "General");
-            setModelValue(item.model || "undefined");
+            setModelValue(item.render_model || "undefined");
 
             const freshLoraInfo = item.lora_info || item.image_info?.lora_info || "";
             setLoraInfo(freshLoraInfo);
@@ -3041,9 +3045,9 @@ app.registerExtension({
             tagInput.value = item.tags || "";
 
             currentImageInfo = {
-                ...(item.image_info || { image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: item.model || "undefined" }),
+                ...(item.image_info || { image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: item.render_model || "undefined" }),
                 lora_info: freshLoraInfo,
-                render_model: item.model || item.image_info?.render_model || "undefined"
+                render_model: item.render_model || item.image_info?.render_model || "undefined"
             };
 
             const isEmb = item.is_embedded !== undefined ? item.is_embedded : false;
@@ -3147,7 +3151,7 @@ app.registerExtension({
                 textSpan.style.overflow = "hidden";
                 textSpan.style.wordBreak = "break-word";
                 textSpan.style.fontSize = `${promptFontSize}px`;
-                textSpan.innerHTML = `<strong style="color: ${activeTheme.textCategory};">[${item.category || 'General'}:${item.model || 'undefined'}]</strong> <span style="color: ${activeTheme.textPrimary};">${item.prompt || ''}</span>`;
+                textSpan.innerHTML = `<strong style="color: ${activeTheme.textCategory};">[${item.category || 'General'}:${item.render_model || 'undefined'}]</strong> <span style="color: ${activeTheme.textPrimary};">${item.prompt || ''}</span>`;
 
                 const itemMoveBtn = document.createElement("button");
                 itemMoveBtn.innerText = "🚚";
