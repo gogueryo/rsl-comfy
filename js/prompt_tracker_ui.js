@@ -420,8 +420,17 @@ app.registerExtension({
                 activeStarBtn.innerText = isStarred ? "★ Favorited" : "☆ Favorite";
                 activeStarBtn.style.color = isStarred ? "#facc15" : activeTheme.textPrimary;
                 activeStarBtn.style.display = "inline-block";
+
+                if (typeof lightboxStarBtn !== 'undefined') {
+                    lightboxStarBtn.innerText = isStarred ? "★ Favorited" : "☆ Favorite";
+                    lightboxStarBtn.style.color = isStarred ? "#facc15" : activeTheme.textPrimary;
+                }
             } else {
                 activeStarBtn.style.display = "none";
+                if (typeof lightboxStarBtn !== 'undefined') {
+                    lightboxStarBtn.innerText = "☆ Favorite";
+                    lightboxStarBtn.style.color = activeTheme.textPrimary;
+                }
             }
         }
 
@@ -480,6 +489,36 @@ app.registerExtension({
         lightboxOverlay.style.padding = "8px";
         lightboxOverlay.style.boxSizing = "border-box";
         lightboxOverlay.style.outline = "none";
+
+        let isFullscreen = false;
+
+        function setFullscreen(enabled) {
+            isFullscreen = enabled;
+            if (isFullscreen) {
+                document.body.appendChild(lightboxOverlay);
+                lightboxOverlay.style.position = "fixed";
+                lightboxOverlay.style.top = "0";
+                lightboxOverlay.style.left = "0";
+                lightboxOverlay.style.width = "100vw";
+                lightboxOverlay.style.height = "100vh";
+                lightboxOverlay.style.zIndex = "99999";
+                lightboxFullscreenBtn.innerText = "⛶ Exit Fullscreen";
+            } else {
+                container.appendChild(lightboxOverlay);
+                lightboxOverlay.style.position = "absolute";
+                lightboxOverlay.style.top = "0";
+                lightboxOverlay.style.left = "0";
+                lightboxOverlay.style.width = "100%";
+                lightboxOverlay.style.height = "100%";
+                lightboxOverlay.style.zIndex = "30";
+                lightboxFullscreenBtn.innerText = "⛶ Fullscreen";
+            }
+        }
+
+        const closeLightbox = () => {
+            setFullscreen(false);
+            lightboxOverlay.style.display = "none";
+        };
 
         const lightboxHeader = document.createElement("div");
         lightboxHeader.style.display = "flex";
@@ -541,6 +580,43 @@ app.registerExtension({
         lightboxHeaderBtnGroup.style.gap = "6px";
         lightboxHeaderBtnGroup.style.alignItems = "center";
 
+        const lightboxStarBtn = document.createElement("button");
+        lightboxStarBtn.innerText = "☆ Favorite (Space)";
+        styleButton(lightboxStarBtn, false, activeTheme);
+        lightboxStarBtn.style.padding = "2px 6px";
+        lightboxStarBtn.style.fontWeight = "bold";
+
+        const toggleFavoriteAction = async () => {
+            if (selectedIndex !== null && localDb[selectedIndex]) {
+                const targetIndex = selectedIndex;
+                const item = localDb[targetIndex];
+                const newStarredState = !item.starred;
+                item.starred = newStarredState;
+                await api.fetchApi("/prompt_tracker/toggle_star", {
+                    method: "POST",
+                    body: JSON.stringify({ db: currentDbName, id: item.id, index: targetIndex, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
+                });
+                updateStarButtonState();
+                renderList();
+                setStatus(newStarredState ? "Favorited prompt" : "Unfavorited prompt");
+            }
+        };
+
+        lightboxStarBtn.onclick = async (e) => {
+            e.stopPropagation();
+            await toggleFavoriteAction();
+        };
+
+        const lightboxFullscreenBtn = document.createElement("button");
+        lightboxFullscreenBtn.innerText = "⛶ Fullscreen (F)";
+        styleButton(lightboxFullscreenBtn, false, activeTheme);
+        lightboxFullscreenBtn.style.padding = "2px 6px";
+
+        lightboxFullscreenBtn.onclick = (e) => {
+            e.stopPropagation();
+            setFullscreen(!isFullscreen);
+        };
+
         const lightboxHudToggleBtn = document.createElement("button");
         lightboxHudToggleBtn.innerText = "👁️ HUD (H)";
         styleButton(lightboxHudToggleBtn, false, activeTheme);
@@ -550,6 +626,8 @@ app.registerExtension({
         lightboxCloseBtn.innerText = "✕ Close";
         styleButton(lightboxCloseBtn, true, activeTheme);
 
+        lightboxHeaderBtnGroup.appendChild(lightboxStarBtn);
+        lightboxHeaderBtnGroup.appendChild(lightboxFullscreenBtn);
         lightboxHeaderBtnGroup.appendChild(lightboxHudToggleBtn);
         lightboxHeaderBtnGroup.appendChild(lightboxCloseBtn);
 
@@ -839,7 +917,7 @@ app.registerExtension({
                     } else {
                         selectedIndex = null;
                         setActiveSelection("", "", null, false);
-                        lightboxOverlay.style.display = "none";
+                        closeLightbox();
                     }
                     setStatus(`Deleted prompt #${targetIndex + 1}`);
                 }
@@ -888,10 +966,12 @@ app.registerExtension({
             hudTagsInput.value = tagInput.value;
             lightboxEmbedCheck.checked = embedCheck.checked;
             lightboxEmbedLabelText.innerText = embedCheck.checked ? "Embed (ON)" : "Embed (OFF)";
+            updateStarButtonState();
         }
 
         function openLightboxForCurrentSelection() {
             if (currentImageInfo.image) {
+                setFullscreen(false);
                 const imgUrl = currentImageInfo.image;
                 lightboxImg.src = getProxiedImageUrl(imgUrl);
                 lightboxImg.style.opacity = "1";
@@ -933,7 +1013,7 @@ app.registerExtension({
 
         lightboxRotateCcwBtn.onclick = (e) => { e.stopPropagation(); applyRotation(-90); };
         lightboxRotateCwBtn.onclick = (e) => { e.stopPropagation(); applyRotation(90); };
-        lightboxCloseBtn.onclick = (e) => { e.stopPropagation(); lightboxOverlay.style.display = "none"; };
+        lightboxCloseBtn.onclick = (e) => { e.stopPropagation(); closeLightbox(); };
 
         prevImgBtn.onclick = (e) => { e.stopPropagation(); navigateVisibleItems(-1); };
         nextImgBtn.onclick = (e) => { e.stopPropagation(); navigateVisibleItems(1); };
@@ -1009,7 +1089,7 @@ app.registerExtension({
             setStatus("Saved prompt and image updates successfully!");
         };
 
-        lightboxOverlay.onkeydown = (e) => {
+        lightboxOverlay.onkeydown = async (e) => {
             if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") {
                 return;
             }
@@ -1023,6 +1103,14 @@ app.registerExtension({
                 e.stopPropagation();
                 if (e.shiftKey) applyRotation(90);
                 else navigateVisibleItems(1);
+            } else if (e.key === " " || e.code === "Space") {
+                e.preventDefault();
+                e.stopPropagation();
+                await toggleFavoriteAction();
+            } else if (e.key.toLowerCase() === "f") {
+                e.preventDefault();
+                e.stopPropagation();
+                setFullscreen(!isFullscreen);
             } else if (e.key.toLowerCase() === "h") {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1030,7 +1118,7 @@ app.registerExtension({
             } else if (e.key === "Escape") {
                 e.preventDefault();
                 e.stopPropagation();
-                lightboxOverlay.style.display = "none";
+                closeLightbox();
             }
         };
 
@@ -1061,7 +1149,7 @@ app.registerExtension({
         dirModalBox.style.gap = "10px";
         dirModalBox.style.width = "100%";
         dirModalBox.style.maxWidth = "400px";
-        dirModalBox.style.height = "380px";
+        dirModalBox.style.height = "420px";
         dirModalBox.style.boxShadow = "0 8px 24px rgba(0,0,0,0.7)";
 
         const dirModalHeader = document.createElement("div");
@@ -1100,6 +1188,32 @@ app.registerExtension({
         dirListContainer.style.gap = "3px";
         dirListContainer.style.outline = "none";
 
+        const dirModalFooterRow = document.createElement("div");
+        dirModalFooterRow.style.display = "flex";
+        dirModalFooterRow.style.justifyContent = "space-between";
+        dirModalFooterRow.style.alignItems = "center";
+        dirModalFooterRow.style.marginTop = "4px";
+
+        const exportFavsLabel = document.createElement("label");
+        exportFavsLabel.style.display = "none"; // Initially hidden, shown during export mode
+        exportFavsLabel.style.alignItems = "center";
+        exportFavsLabel.style.gap = "6px";
+        exportFavsLabel.style.fontSize = "11px";
+        exportFavsLabel.style.cursor = "pointer";
+        exportFavsLabel.style.fontWeight = "bold";
+        exportFavsLabel.style.color = activeTheme.textPrimary;
+
+        const exportFavsCheck = document.createElement("input");
+        exportFavsCheck.type = "checkbox";
+        exportFavsCheck.checked = false;
+        exportFavsCheck.style.cursor = "pointer";
+
+        const exportFavsText = document.createElement("span");
+        exportFavsText.innerText = "favorites only";
+
+        exportFavsLabel.appendChild(exportFavsCheck);
+        exportFavsLabel.appendChild(exportFavsText);
+
         const dirModalBtnGroup = document.createElement("div");
         dirModalBtnGroup.style.display = "flex";
         dirModalBtnGroup.style.gap = "8px";
@@ -1117,10 +1231,13 @@ app.registerExtension({
         dirModalBtnGroup.appendChild(dirCancelBtn);
         dirModalBtnGroup.appendChild(dirSelectBtn);
 
+        dirModalFooterRow.appendChild(exportFavsLabel);
+        dirModalFooterRow.appendChild(dirModalBtnGroup);
+
         dirModalBox.appendChild(dirModalHeader);
         dirModalBox.appendChild(dirPathInput);
         dirModalBox.appendChild(dirListContainer);
-        dirModalBox.appendChild(dirModalBtnGroup);
+        dirModalBox.appendChild(dirModalFooterRow);
         dirModalOverlay.appendChild(dirModalBox);
         container.appendChild(dirModalOverlay);
 
@@ -1242,13 +1359,15 @@ app.registerExtension({
 
             if (currentDirModalMode === "export") {
                 dirModalOverlay.style.display = "none";
-                setStatus("Exporting images...");
+                const onlyFavs = exportFavsCheck.checked;
+                setStatus(onlyFavs ? "Exporting favorite images..." : "Exporting all images...");
                 try {
                     const res = await api.fetchApi("/prompt_tracker/export_images", {
                         method: "POST",
                         body: JSON.stringify({
                             db: currentDbName,
                             export_path: chosenPath,
+                            favorites_only: onlyFavs,
                             master_root: node.properties.master_root
                         })
                     });
@@ -1540,17 +1659,13 @@ app.registerExtension({
 
                 if (!isVisible) {
                     renderDropdownItems();
-
-                    // 1. Display list first so DOM can measure actual rendered height
                     popupList.style.display = "flex";
 
-                    // 2. Measure actual height and window boundaries
                     const btnRect = displayBtn.getBoundingClientRect();
                     const listHeight = popupList.offsetHeight || 160;
                     const spaceBelow = window.innerHeight - btnRect.bottom;
                     const spaceAbove = btnRect.top;
 
-                    // 3. Drop UP if space below is limited OR if space above is greater
                     if (spaceBelow < listHeight || spaceBelow < spaceAbove) {
                         popupList.style.top = "auto";
                         popupList.style.bottom = "100%";
@@ -1685,6 +1800,7 @@ app.registerExtension({
             e.stopPropagation();
             currentDirModalMode = "master";
             dirModalTitle.innerText = "Select Instance Directory";
+            exportFavsLabel.style.display = "none"; // Hide favorites filter for master root selection
             dirModalOverlay.style.display = "flex";
             await loadDirectory(masterPathInput.value || node.properties.master_root || "");
             setStatus("Opened folder selection window");
@@ -1813,6 +1929,7 @@ app.registerExtension({
             e.stopPropagation();
             currentDirModalMode = "export";
             dirModalTitle.innerText = "Select Base Export Directory";
+            exportFavsLabel.style.display = "flex"; // Show favorites filter for export mode
             dirModalOverlay.style.display = "flex";
             await loadDirectory(masterPathInput.value || node.properties.master_root || "");
             setStatus("Opened export directory selection window");
@@ -1878,19 +1995,7 @@ app.registerExtension({
 
         activeStarBtn.onclick = async (e) => {
             e.stopPropagation();
-            if (selectedIndex !== null && localDb[selectedIndex]) {
-                const targetIndex = selectedIndex;
-                const item = localDb[targetIndex];
-                const newStarredState = !item.starred;
-                item.starred = newStarredState;
-                await api.fetchApi("/prompt_tracker/toggle_star", {
-                    method: "POST",
-                    body: JSON.stringify({ db: currentDbName, id: item.id, index: targetIndex, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
-                });
-                updateStarButtonState();
-                renderList();
-                setStatus(newStarredState ? "Favorited prompt" : "Unfavorited prompt");
-            }
+            await toggleFavoriteAction();
         };
 
         titleRow.appendChild(activeTitle);

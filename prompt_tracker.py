@@ -430,7 +430,9 @@ class PromptTrackerNode:
             if raw_auto_model.strip()
             else str(model_value or "undefined")
         )
-        final_loras = raw_auto_lora if raw_auto_lora.strip() else str(loras_value or "")
+        final_lora_info = (
+            raw_auto_lora if raw_auto_lora.strip() else str(loras_value or "")
+        )
 
         final_steps = (
             int(auto_steps[0])
@@ -460,7 +462,7 @@ class PromptTrackerNode:
             "denoise": final_denoise,
             "seed": final_seed,
             "render_model": final_model,
-            "lora_info": final_loras,
+            "lora_info": final_lora_info,
         }
         output_image_tensor = (
             auto_image if auto_image is not None else torch.zeros((1, 64, 64, 3))
@@ -501,7 +503,7 @@ class PromptTrackerNode:
                         "negative": final_negative,
                         "category": category_value,
                         "render_model": final_model,
-                        "loras": final_loras,
+                        "lora_info": raw_auto_lora,
                         "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
                         "source": source_value or "Auto-Prompt",
                         "tags": tag_value,
@@ -522,14 +524,14 @@ class PromptTrackerNode:
                 "prompt": [final_prompt],
                 "negative_prompt": [final_negative],
                 "render_model": [final_model],
-                "loras": [final_loras],
+                "lora_info": [final_lora_info],
             },
             "result": (
                 str(final_prompt),
                 str(final_negative),
                 category_value,
                 final_model,
-                final_loras,
+                final_lora_info,
                 config_value,
                 source_value,
                 tag_value,
@@ -689,7 +691,7 @@ async def add_prompt(request):
             "negative": json_data.get("negative", ""),
             "category": json_data.get("category", "General"),
             "render_model": json_data.get("render_model", "undefined"),
-            "loras": json_data.get("loras", "") or json_data.get("lora_info", ""),
+            "lora_info": json_data.get("lora_info", "") or json_data.get("loras", ""),
             "config": json_data.get("config", ""),
             "source": json_data.get("source", ""),
             "tags": json_data.get("tags", ""),
@@ -757,9 +759,9 @@ async def update_prompt(request):
             existing["render_model"] = json_data.get(
                 "render_model", existing.get("render_model", "undefined")
             )
-            existing["loras"] = json_data.get(
-                "loras", existing.get("loras", "")
-            ) or json_data.get("lora_info", "")
+            existing["lora_info"] = json_data.get(
+                "lora_info", existing.get("lora_info", "")
+            ) or json_data.get("loras", "")
             existing["config"] = json_data.get("config", existing.get("config", ""))
             existing["source"] = json_data.get("source", existing.get("source", ""))
             existing["tags"] = json_data.get("tags", existing.get("tags", ""))
@@ -1201,6 +1203,9 @@ async def export_images_handler(request):
         active_dir = get_target_data_dir(json_data)
         export_base_path = json_data.get("export_path")
         source_master_root = json_data.get("master_root")
+        favorites_only = json_data.get(
+            "favorites_only", False
+        )  # <--- Capture favorites only flag
 
         if not export_base_path or not os.path.isdir(export_base_path):
             return web.json_response(
@@ -1215,6 +1220,10 @@ async def export_images_handler(request):
         exported_count = 0
 
         for idx, item in enumerate(db_data):
+            # Check favorites filter flag
+            if favorites_only and not item.get("starred", False):
+                continue
+
             img_info = item.get("image_info") or {}
             img_val = img_info.get("image", "")
             if not img_val:
