@@ -592,13 +592,31 @@ app.registerExtension({
                 const item = localDb[targetIndex];
                 const newStarredState = !item.starred;
                 item.starred = newStarredState;
-                await api.fetchApi("/prompt_tracker/toggle_star", {
-                    method: "POST",
-                    body: JSON.stringify({ db: currentDbName, id: item.id, index: targetIndex, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
-                });
+
+                // Immediate UI update
                 updateStarButtonState();
                 renderList();
-                setStatus(newStarredState ? "Favorited prompt" : "Unfavorited prompt");
+
+                // Show green border feedback until persistence finishes
+                exampleContainer.style.border = "2px solid #22c55e";
+                lightboxImg.style.border = "2px solid #22c55e";
+
+                setStatus(newStarredState ? "Favorited prompt (persisting...)" : "Unfavorited prompt (persisting...)");
+
+                try {
+                    await api.fetchApi("/prompt_tracker/toggle_star", {
+                        method: "POST",
+                        body: JSON.stringify({ db: currentDbName, id: item.id, index: targetIndex, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
+                    });
+                    setStatus(newStarredState ? "Favorited prompt" : "Unfavorited prompt");
+                } catch (err) {
+                    setStatus("Failed to persist favorite state", true);
+                } finally {
+                    // Reset thumbnail borders
+                    exampleContainer.style.border = `1.5px dashed ${activeTheme.blueBoxBorder}`;
+                    lightboxImg.style.border = "none";
+                    lightboxImg.style.boxShadow = "0 8px 24px rgba(0,0,0,0.8)";
+                }
             }
         };
 
@@ -1483,6 +1501,13 @@ app.registerExtension({
                 modalInput.value = defaultVal || "";
             }
 
+            // Ensure modal is visible in lightbox/fullscreen mode
+            if (lightboxOverlay.style.display === "flex") {
+                lightboxOverlay.appendChild(modalOverlay);
+            } else {
+                container.appendChild(modalOverlay);
+            }
+
             modalOverlay.style.display = "flex";
             if (!isSelectMode && showInput) {
                 modalInput.focus();
@@ -1800,7 +1825,7 @@ app.registerExtension({
             e.stopPropagation();
             currentDirModalMode = "master";
             dirModalTitle.innerText = "Select Instance Directory";
-            exportFavsLabel.style.display = "none"; // Hide favorites filter for master root selection
+            exportFavsLabel.style.display = "none";
             dirModalOverlay.style.display = "flex";
             await loadDirectory(masterPathInput.value || node.properties.master_root || "");
             setStatus("Opened folder selection window");
@@ -1929,7 +1954,7 @@ app.registerExtension({
             e.stopPropagation();
             currentDirModalMode = "export";
             dirModalTitle.innerText = "Select Base Export Directory";
-            exportFavsLabel.style.display = "flex"; // Show favorites filter for export mode
+            exportFavsLabel.style.display = "flex";
             dirModalOverlay.style.display = "flex";
             await loadDirectory(masterPathInput.value || node.properties.master_root || "");
             setStatus("Opened export directory selection window");
