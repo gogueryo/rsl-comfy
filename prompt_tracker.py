@@ -468,22 +468,28 @@ class PromptTrackerNode:
             "lora_info": final_lora_info,
         }
 
-        # Resolve output image tensor: prioritize live auto_image during auto-prompting, otherwise use image_value
+        # Resolve output image tensor and support multi-image batch looping (e.g. character sheet segments)
         output_image_tensor = None
+        should_capture = self.is_auto_prompt(AutoCaptureOn, enable_auto_capture)
 
         if raw_auto.strip() and auto_image is not None:
             output_image_tensor = auto_image
             try:
                 output_dir = folder_paths.get_temp_directory()
                 os.makedirs(output_dir, exist_ok=True)
-                unique_id = int(time.time() * 1000)
-                filename = f"rsl_auto_capture_{os.getpid()}_{unique_id}.png"
-                full_path = os.path.join(output_dir, filename)
 
-                img_tensor = auto_image
-                if isinstance(img_tensor, torch.Tensor):
-                    if img_tensor.ndim == 4:
-                        img_tensor = img_tensor[0]
+                # Ensure tensor is 4D (Batch, Height, Width, Channels) or handle single image
+                img_tensors = (
+                    auto_image
+                    if isinstance(auto_image, torch.Tensor) and auto_image.ndim == 4
+                    else auto_image[None, ...]
+                )
+
+                # Loop through every image/segment in the batch
+                for i, img_tensor in enumerate(img_tensors):
+                    unique_id = int(time.time() * 1000) + i
+                    filename = f"rsl_auto_capture_{os.getpid()}_{unique_id}.png"
+                    full_path = os.path.join(output_dir, filename)
 
                     image_np = 255.0 * img_tensor.detach().cpu().numpy()
                     image_np = np.clip(image_np, 0, 255).astype(np.uint8)
@@ -491,11 +497,42 @@ class PromptTrackerNode:
                     image_pil = Image.fromarray(image_np)
                     image_pil.save(full_path)
 
-                    image_data_payload["image"] = (
+                    batch_payload = dict(image_data_payload)
+                    batch_payload["image"] = (
                         f"/view?filename={filename}&type=temp&subfolder="
                     )
+
+                    segment_prompt = (
+                        f"{raw_auto} (Segment #{i+1})"
+                        if len(img_tensors) > 1
+                        else raw_auto
+                    )
+
+                    if node_id is not None and should_capture:
+                        PromptServer.instance.send_sync(
+                            "rsl-auto-prompt-received",
+                            {
+                                "node_id": str(node_id),
+                                "instance_uuid": final_instance_uuid,
+                                "prompt": segment_prompt,
+                                "negative": final_negative,
+                                "category": category_value,
+                                "render_model": final_model,
+                                "lora_info": raw_auto_lora,
+                                "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
+                                "source": source_value or "Auto-Prompt",
+                                "tags": tag_value,
+                                "steps": final_steps,
+                                "cfg": final_cfg,
+                                "denoise": final_denoise,
+                                "seed": final_seed,
+                                "render_model": final_model,
+                                "image_info": batch_payload,
+                                "active_db": active_db,
+                            },
+                        )
             except Exception as e:
-                print(f"[PromptTracker] Error saving auto_image tensor: {e}")
+                print(f"[PromptTracker] Error saving segmented auto_image batch: {e}")
 
         elif image_value:
             try:
@@ -513,35 +550,6 @@ class PromptTrackerNode:
 
         if output_image_tensor is None:
             output_image_tensor = torch.zeros((1, 64, 64, 3))
-
-        should_capture = self.is_auto_prompt(AutoCaptureOn, enable_auto_capture)
-
-        if raw_auto.strip() and node_id is not None and should_capture:
-            try:
-                PromptServer.instance.send_sync(
-                    "rsl-auto-prompt-received",
-                    {
-                        "node_id": str(node_id),
-                        "instance_uuid": final_instance_uuid,
-                        "prompt": raw_auto,
-                        "negative": final_negative,
-                        "category": category_value,
-                        "render_model": final_model,
-                        "lora_info": raw_auto_lora,
-                        "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
-                        "source": source_value or "Auto-Prompt",
-                        "tags": tag_value,
-                        "steps": final_steps,
-                        "cfg": final_cfg,
-                        "denoise": final_denoise,
-                        "seed": final_seed,
-                        "render_model": final_model,
-                        "image_info": image_data_payload,
-                        "active_db": active_db,
-                    },
-                )
-            except Exception:
-                pass
 
         return {
             "ui": {
@@ -676,20 +684,6 @@ async def add_prompt(request):
         source_master_root = json_data.get("source_master_root")
         instance_uuid = json_data.get("instance_uuid")
         db_data = load_db_file(db_name, active_dir)
-
-        if json_data.get("source") == "Auto-Prompt" and db_data:
-            last_entry = db_data[-1]
-            if last_entry.get("prompt") == json_data.get(
-                "prompt", ""
-            ) and last_entry.get("negative") == json_data.get("negative", ""):
-                try:
-                    last_time = datetime.fromisoformat(last_entry.get("created_at", ""))
-                    if (datetime.utcnow() - last_time).total_seconds() < 2.0:
-                        return web.json_response(
-                            {"status": "success", "entry": last_entry, "db": db_data}
-                        )
-                except Exception:
-                    pass
 
         is_embedded = json_data.get("is_embedded", False)
         image_info = json_data.get(
