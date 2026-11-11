@@ -307,6 +307,7 @@ def get_all_referenced_images(data_dir):
 
 
 class PromptTrackerNode:
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -339,7 +340,6 @@ class PromptTrackerNode:
                 "seed": ("INT", {"default": 0}),
                 "active_db": ("STRING", {"default": "prompts_db"}),
                 "master_root": ("STRING", {"default": ""}),
-                "instance_uuid": ("STRING", {"default": ""}),
             },
             "hidden": {"node_id": "UNIQUE_ID", "prompt": "PROMPT"},
         }
@@ -466,81 +466,58 @@ class PromptTrackerNode:
             else (int(auto_seed) if auto_seed is not None else seed)
         )
 
-        image_data_payload = {
-            "image": "",
-            "steps": final_steps,
-            "cfg": final_cfg,
-            "denoise": final_denoise,
-            "seed": final_seed,
-            "render_model": final_model,
-            "lora_info": final_lora_info,
-        }
-
-        # Resolve output image tensor and support multi-image batch looping (e.g. character sheet segments)
         output_image_tensor = None
         should_capture = self.is_auto_prompt(AutoCaptureOn, enable_auto_capture)
+        # One JSON payload per image. ComfyUI's "executed" event delivers the
+        # list once per run; the frontend adds each entry.
+        auto_capture_list = []
 
         if raw_auto.strip() and auto_image is not None:
             output_image_tensor = auto_image
-            try:
-                output_dir = folder_paths.get_temp_directory()
-                os.makedirs(output_dir, exist_ok=True)
+            if should_capture and node_id is not None:
+                try:
+                    output_dir = folder_paths.get_temp_directory()
+                    os.makedirs(output_dir, exist_ok=True)
 
-                # Ensure tensor is 4D (Batch, Height, Width, Channels) or handle single image
-                img_tensors = (
-                    auto_image
-                    if isinstance(auto_image, torch.Tensor) and auto_image.ndim == 4
-                    else auto_image[None, ...]
-                )
+                    if isinstance(auto_image, torch.Tensor) and auto_image.ndim == 4:
+                        frames = [auto_image[i] for i in range(auto_image.shape[0])]
+                    else:
+                        frames = [auto_image]
 
-                # Loop through every image/segment in the batch
-                for i, img_tensor in enumerate(img_tensors):
-                    unique_id = int(time.time() * 1000) + i
-                    filename = f"rsl_auto_capture_{os.getpid()}_{unique_id}.png"
-                    full_path = os.path.join(output_dir, filename)
+                    for tensor_to_save in frames:
+                        image_np = 255.0 * tensor_to_save.detach().cpu().numpy()
+                        image_np = np.clip(image_np, 0, 255).astype(np.uint8)
+                        image_pil = Image.fromarray(image_np)
 
-                    image_np = 255.0 * img_tensor.detach().cpu().numpy()
-                    image_np = np.clip(image_np, 0, 255).astype(np.uint8)
+                        filename = f"rsl_auto_capture_{uuid.uuid4().hex}.png"
+                        image_pil.save(os.path.join(output_dir, filename))
 
-                    image_pil = Image.fromarray(image_np)
-                    image_pil.save(full_path)
-
-                    batch_payload = dict(image_data_payload)
-                    batch_payload["image"] = (
-                        f"/view?filename={filename}&type=temp&subfolder="
-                    )
-
-                    segment_prompt = (
-                        f"{raw_auto} (Segment #{i+1})"
-                        if len(img_tensors) > 1
-                        else raw_auto
-                    )
-
-                    if node_id is not None and should_capture:
-                        PromptServer.instance.send_sync(
-                            "rsl-auto-prompt-received",
-                            {
-                                "node_id": str(node_id),
-                                "instance_uuid": final_instance_uuid,
-                                "prompt": segment_prompt,
-                                "negative": final_negative,
-                                "category": category_value,
-                                "render_model": final_model,
-                                "lora_info": raw_auto_lora,
-                                "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
-                                "source": source_value or "Auto-Prompt",
-                                "tags": tag_value,
+                        auto_capture_list.append(json.dumps({
+                            "prompt": raw_auto,
+                            "negative": final_negative,
+                            "category": category_value,
+                            "render_model": final_model,
+                            "lora_info": raw_auto_lora,
+                            "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
+                            "source": source_value or "Auto-Prompt",
+                            "tags": tag_value,
+                            "steps": final_steps,
+                            "cfg": final_cfg,
+                            "denoise": final_denoise,
+                            "seed": final_seed,
+                            "active_db": active_db,
+                            "image_info": {
+                                "image": f"/view?filename={filename}&type=temp&subfolder=",
                                 "steps": final_steps,
                                 "cfg": final_cfg,
                                 "denoise": final_denoise,
                                 "seed": final_seed,
                                 "render_model": final_model,
-                                "image_info": batch_payload,
-                                "active_db": active_db,
+                                "lora_info": final_lora_info,
                             },
-                        )
-            except Exception as e:
-                print(f"[PromptTracker] Error saving segmented auto_image batch: {e}")
+                        }))
+                except Exception as e:
+                    print(f"[PromptTracker] Error saving auto image: {e}")
 
         elif image_value:
             try:
@@ -565,6 +542,7 @@ class PromptTrackerNode:
                 "negative_prompt": [final_negative],
                 "render_model": [final_model],
                 "lora_info": [final_lora_info],
+                "auto_capture": auto_capture_list,
             },
             "result": (
                 str(final_prompt),

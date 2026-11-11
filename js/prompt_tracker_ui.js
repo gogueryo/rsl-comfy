@@ -24,9 +24,6 @@ function hideBackendWidgets(node) {
             w.type = "hidden";
             w.computeSize = () => [0, -4];
             w.draw = function () { };
-        } else if (w.name === "instance_uuid") {
-            w.computeSize = () => [0, -4];
-            w.draw = function () { };
         }
     });
 }
@@ -153,7 +150,14 @@ app.registerExtension({
         if (!node.properties.selected_database) node.properties.selected_database = "prompts_db";
         if (!node.properties.master_root) node.properties.master_root = "";
 
-        const getInstanceUuid = () => node.properties.instanceUuid;
+        const getInstanceUuid = () => {
+            if (!node.properties.instanceUuid) {
+                node.properties.instanceUuid = (typeof crypto !== 'undefined' && crypto.randomUUID)
+                    ? crypto.randomUUID()
+                    : 'rsl-' + Math.random().toString(36).substring(2, 9) + '-' + Math.floor(Math.random() * 100000);
+            }
+            return node.properties.instanceUuid;
+        };
 
         if (node.properties.selected_prompt_text === undefined) node.properties.selected_prompt_text = null;
         if (node.properties.promptFontSize === undefined) node.properties.promptFontSize = 12;
@@ -346,7 +350,6 @@ app.registerExtension({
                 if (w.name === "AutoCaptureOn") w.value = autoCaptureState;
                 if (w.name === "active_db") w.value = currentDbName;
                 if (w.name === "master_root") w.value = node.properties.master_root;
-                if (w.name === "instance_uuid") w.value = getInstanceUuid();
             });
         }
 
@@ -1787,40 +1790,6 @@ app.registerExtension({
         toolBtnGroup.style.alignItems = "center";
         toolBtnGroup.style.gap = "4px";
 
-        const togglePinsBtn = document.createElement("button");
-        togglePinsBtn.innerText = "🔌 Pins";
-        styleButton(togglePinsBtn, false, activeTheme);
-
-        let hiddenInputs = null;
-        let hiddenOutputs = null;
-        let pinsAreHidden = false;
-
-        togglePinsBtn.onclick = (e) => {
-            e.stopPropagation();
-
-            const currentWidth = node.size ? node.size[0] : 300;
-            const currentHeight = node.size ? node.size[1] : 400;
-
-            if (!pinsAreHidden) {
-                hiddenInputs = node.inputs ? [...node.inputs] : [];
-                hiddenOutputs = node.outputs ? [...node.outputs] : [];
-                node.inputs = [];
-                node.outputs = [];
-                pinsAreHidden = true;
-                togglePinsBtn.style.opacity = "0.5";
-                setStatus("Pins hidden");
-            } else {
-                if (hiddenInputs) node.inputs = [...hiddenInputs];
-                if (hiddenOutputs) node.outputs = [...hiddenOutputs];
-                pinsAreHidden = false;
-                togglePinsBtn.style.opacity = "1.0";
-                setStatus("Pins visible");
-            }
-
-            node.setSize([currentWidth, currentHeight]);
-            node.setDirtyCanvas(true, true);
-        };
-
         const toggleLabel = document.createElement("label");
         toggleLabel.style.display = "flex";
         toggleLabel.style.alignItems = "center";
@@ -1889,7 +1858,6 @@ app.registerExtension({
         toolBtnGroup.appendChild(fontUpBtn);
         toolBtnGroup.appendChild(themeDropdown);
         toolBtnGroup.appendChild(copyBtn);
-        toolBtnGroup.appendChild(togglePinsBtn);
         topToolbar.appendChild(counterBadge);
         topToolbar.appendChild(toolBtnGroup);
 
@@ -3048,63 +3016,56 @@ app.registerExtension({
         };
 
         if (node._autoPromptListener) {
-            api.removeEventListener("rsl-auto-prompt-received", node._autoPromptListener);
+            api.removeEventListener("executed", node._autoPromptListener);
         }
 
+        // ComfyUI emits "executed" once per node per run. auto_capture is a
+        // list with one JSON payload per image (first-only when a single image).
         node._autoPromptListener = async (e) => {
             if (!e.detail) return;
-            if (String(e.detail.node_id) !== String(node.id)) return;
-            if (e.detail.instance_uuid && String(e.detail.instance_uuid) !== String(getInstanceUuid())) return;
+            if (String(e.detail.node) !== String(node.id)) return;
+            const output = e.detail.output || {};
+            const payloads = (output.auto_capture || []).filter(Boolean);
+            if (payloads.length === 0) return;
 
-            const wiredPrompt = e.detail.prompt || "";
-            const wiredNeg = e.detail.negative || "";
-            const wiredModel = e.detail.render_model || activeSelectedModel;
-            const wiredLoraInfo = e.detail.lora_info || "";
-            const category = activeSelectedCategory;
-            const config = e.detail.config || configInput.value.trim();
-            const source = e.detail.source || "Auto-Prompt";
-            const tags = tagInput.value.trim();
-            const image_info = e.detail.image_info || currentImageInfo;
-            const is_embedded = false;
-
+            let added = 0;
+            let lastDetail = null;
             try {
-                let final_image_info = { ...image_info, lora_info: wiredLoraInfo, render_model: wiredModel };
-                if (is_embedded && final_image_info.image && !final_image_info.image.startsWith("data:") && !final_image_info.image.startsWith("http")) {
-                    const resImg = await fetch(getProxiedImageUrl(final_image_info.image));
-                    const blob = await resImg.blob();
-                    const base64 = await new Promise((resolve) => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => resolve(reader.result);
-                        reader.readAsDataURL(blob);
+                for (const raw of payloads) {
+                    let detail;
+                    try { detail = JSON.parse(raw); } catch { continue; }
+                    if (!detail || !detail.prompt) continue;
+                    lastDetail = detail;
+
+                    const res = await api.fetchApi("/prompt_tracker/add", {
+                        method: "POST",
+                        body: JSON.stringify({
+                            db: currentDbName,
+                            category: detail.category || activeSelectedCategory,
+                            render_model: detail.render_model || activeSelectedModel,
+                            lora_info: detail.lora_info || "",
+                            config: detail.config || "",
+                            source: detail.source || "Auto-Prompt",
+                            tags: detail.tags || tagInput.value.trim(),
+                            prompt: detail.prompt || "",
+                            negative: detail.negative || "",
+                            image_info: detail.image_info || currentImageInfo,
+                            is_embedded: false,
+                            starred: false,
+                            master_root: node.properties.master_root,
+                            source_master_root: node.properties.master_root || "",
+                            instance_uuid: getInstanceUuid()
+                        })
                     });
-                    final_image_info = { ...final_image_info, image: base64 };
+                    const data = await res.json();
+                    if (data.status === "success") {
+                        localDb = data.db;
+                        added += 1;
+                    }
                 }
 
-                const res = await api.fetchApi("/prompt_tracker/add", {
-                    method: "POST",
-                    body: JSON.stringify({
-                        db: currentDbName,
-                        category,
-                        render_model: wiredModel,
-                        lora_info: wiredLoraInfo,
-                        config,
-                        source,
-                        tags,
-                        prompt: wiredPrompt,
-                        negative: wiredNeg,
-                        image_info: final_image_info,
-                        is_embedded,
-                        starred: false,
-                        master_root: node.properties.master_root,
-                        source_master_root: node.properties.master_root || "",
-                        instance_uuid: getInstanceUuid()
-                    })
-                });
-                const data = await res.json();
-                if (data.status === "success") {
-                    localDb = data.db;
+                if (added > 0 && lastDetail) {
                     await prefetchImagesAsBase64(localDb);
-                    const newIdx = localDb.length - 1;
                     updateCategoryDropdowns();
                     renderList();
                     if (categoryDropdown.updateDisplay) categoryDropdown.updateDisplay();
@@ -3112,15 +3073,23 @@ app.registerExtension({
                     if (lorasDropdown.updateDisplay) lorasDropdown.updateDisplay();
                     if (hudLorasInput.updateDisplay) hudLorasInput.updateDisplay();
 
+                    const newIdx = localDb.length - 1;
                     const visible = getVisibleRows();
                     const vizPos = visible.findIndex(r => r.originalIndex === newIdx);
                     if (vizPos !== -1) {
                         selectItemByIndex(vizPos, visible);
                     } else {
                         selectedIndex = newIdx;
-                        setActiveSelection(wiredPrompt, wiredNeg, final_image_info, is_embedded);
+                        setActiveSelection(
+                            lastDetail.prompt || "",
+                            lastDetail.negative || "",
+                            lastDetail.image_info || null,
+                            false
+                        );
                     }
-                    setStatus("Auto-prompt added and selected successfully!");
+                    setStatus(added === 1
+                        ? "Auto-prompt added and selected"
+                        : `Added ${added} prompts; selected the latest`);
                 }
             } catch (err) {
                 console.error("Failed to auto-add wired prompt:", err);
@@ -3128,7 +3097,7 @@ app.registerExtension({
             }
         };
 
-        api.addEventListener("rsl-auto-prompt-received", node._autoPromptListener);
+        api.addEventListener("executed", node._autoPromptListener);
 
         if (node._refreshListener) {
             api.removeEventListener("rsl-database-refreshed", node._refreshListener);
@@ -3162,7 +3131,8 @@ app.registerExtension({
                     return;
                 }
 
-                if (currentSelectedId) {
+                // Our own add already selected the new item; don't snap back.
+                if (!(isInitiator && action === "add") && currentSelectedId) {
                     const foundIdx = localDb.findIndex(item => item.id === currentSelectedId);
                     if (foundIdx !== -1) {
                         selectedIndex = foundIdx;
