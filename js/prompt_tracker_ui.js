@@ -18,6 +18,7 @@ function hideBackendWidgets(node) {
             "auto_lora_info", "auto_image", "auto_steps", "auto_cfg", "auto_denoise", "auto_seed",
             "prompt_value", "negative_value", "category_value", "model_value",
             "loras_value", "config_value", "source_value", "tag_value",
+            "image_value", // <--- Added here
             "steps", "cfg", "denoise", "seed", "active_db", "master_root"
         ].includes(w.name)) {
             w.type = "hidden";
@@ -334,6 +335,7 @@ app.registerExtension({
                 if (w.name === "loras_value") {
                     w.value = currentImageInfo.lora_info || activeSelectedLora;
                 }
+                if (w.name === "image_value") w.value = currentImageInfo.image || ""; // <--- Added here for consistency
                 if (w.name === "config_value") w.value = configInput.value.trim();
                 if (w.name === "source_value") w.value = sourceInput.value.trim();
                 if (w.name === "tag_value") w.value = tagInput.value.trim();

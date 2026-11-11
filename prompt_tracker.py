@@ -5,6 +5,7 @@ import uuid
 import torch
 import numpy as np
 from PIL import Image
+import io
 import base64
 from datetime import datetime
 import folder_paths
@@ -331,6 +332,7 @@ class PromptTrackerNode:
                 "config_value": ("STRING", {"default": ""}),
                 "source_value": ("STRING", {"default": ""}),
                 "tag_value": ("STRING", {"default": ""}),
+                "image_value": ("STRING", {"default": ""}),
                 "steps": ("INT", {"default": 20}),
                 "cfg": ("FLOAT", {"default": 8.0}),
                 "denoise": ("FLOAT", {"default": 1.0}),
@@ -362,7 +364,7 @@ class PromptTrackerNode:
         "config",
         "source",
         "tag",
-        "IMAGE",
+        "image",
     )
     FUNCTION = "track_prompt"
     CATEGORY = "rsl/tools"
@@ -394,6 +396,7 @@ class PromptTrackerNode:
         config_value="",
         source_value="",
         tag_value="",
+        image_value="",
         steps=20,
         cfg=8.0,
         denoise=1.0,
@@ -464,31 +467,52 @@ class PromptTrackerNode:
             "render_model": final_model,
             "lora_info": final_lora_info,
         }
-        output_image_tensor = (
-            auto_image if auto_image is not None else torch.zeros((1, 64, 64, 3))
-        )
 
-        if auto_image is not None:
+        # Resolve output image tensor: prioritize live auto_image during auto-prompting, otherwise use image_value
+        output_image_tensor = None
+
+        if raw_auto.strip() and auto_image is not None:
+            output_image_tensor = auto_image
             try:
                 output_dir = folder_paths.get_temp_directory()
+                os.makedirs(output_dir, exist_ok=True)
                 unique_id = int(time.time() * 1000)
                 filename = f"rsl_auto_capture_{os.getpid()}_{unique_id}.png"
                 full_path = os.path.join(output_dir, filename)
 
-                img_tensor = (
-                    auto_image[0]
-                    if isinstance(auto_image, torch.Tensor) and auto_image.ndim == 4
-                    else auto_image
-                )
-                image_np = 255.0 * img_tensor.cpu().numpy()
-                image_pil = Image.fromarray(np.clip(image_np, 0, 255).astype(np.uint8))
-                image_pil.save(full_path)
+                img_tensor = auto_image
+                if isinstance(img_tensor, torch.Tensor):
+                    if img_tensor.ndim == 4:
+                        img_tensor = img_tensor[0]
 
-                image_data_payload["image"] = (
-                    f"/view?filename={filename}&type=temp&subfolder="
-                )
+                    image_np = 255.0 * img_tensor.detach().cpu().numpy()
+                    image_np = np.clip(image_np, 0, 255).astype(np.uint8)
+
+                    image_pil = Image.fromarray(image_np)
+                    image_pil.save(full_path)
+
+                    image_data_payload["image"] = (
+                        f"/view?filename={filename}&type=temp&subfolder="
+                    )
+            except Exception as e:
+                print(f"[PromptTracker] Error saving auto_image tensor: {e}")
+
+        elif image_value:
+            try:
+                target_dir = get_target_data_dir({"master_root": master_root})
+                img_bytes = extract_image_bytes(image_value, target_dir)
+                if img_bytes:
+                    img_pil = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                    img_np = np.array(img_pil).astype(np.float32) / 255.0
+                    output_image_tensor = torch.from_numpy(img_np)[None, ...]
             except Exception:
                 pass
+
+        elif auto_image is not None:
+            output_image_tensor = auto_image
+
+        if output_image_tensor is None:
+            output_image_tensor = torch.zeros((1, 64, 64, 3))
 
         should_capture = self.is_auto_prompt(AutoCaptureOn, enable_auto_capture)
 
@@ -1203,9 +1227,7 @@ async def export_images_handler(request):
         active_dir = get_target_data_dir(json_data)
         export_base_path = json_data.get("export_path")
         source_master_root = json_data.get("master_root")
-        favorites_only = json_data.get(
-            "favorites_only", False
-        )  # <--- Capture favorites only flag
+        favorites_only = json_data.get("favorites_only", False)
 
         if not export_base_path or not os.path.isdir(export_base_path):
             return web.json_response(
@@ -1220,7 +1242,6 @@ async def export_images_handler(request):
         exported_count = 0
 
         for idx, item in enumerate(db_data):
-            # Check favorites filter flag
             if favorites_only and not item.get("starred", False):
                 continue
 
