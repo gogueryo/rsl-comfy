@@ -351,6 +351,10 @@ class PromptTrackerNode:
         "STRING",
         "STRING",
         "STRING",
+        "INT",
+        "FLOAT",
+        "FLOAT",
+        "INT",
         "STRING",
         "STRING",
         "IMAGE",
@@ -362,6 +366,10 @@ class PromptTrackerNode:
         "render_model",
         "lora_info",
         "config",
+        "steps",
+        "cfg",
+        "denoise",
+        "seed",
         "source",
         "tag",
         "image",
@@ -440,22 +448,22 @@ class PromptTrackerNode:
         final_steps = (
             int(auto_steps[0])
             if isinstance(auto_steps, (list, tuple)) and len(auto_steps) > 0
-            else (auto_steps if auto_steps is not None else steps)
+            else (int(auto_steps) if auto_steps is not None else steps)
         )
         final_cfg = (
             float(auto_cfg[0])
             if isinstance(auto_cfg, (list, tuple)) and len(auto_cfg) > 0
-            else (auto_cfg if auto_cfg is not None else cfg)
+            else (float(auto_cfg) if auto_cfg is not None else cfg)
         )
         final_denoise = (
             float(auto_denoise[0])
             if isinstance(auto_denoise, (list, tuple)) and len(auto_denoise) > 0
-            else (auto_denoise if auto_denoise is not None else denoise)
+            else (float(auto_denoise) if auto_denoise is not None else denoise)
         )
         final_seed = (
             int(auto_seed[0])
             if isinstance(auto_seed, (list, tuple)) and len(auto_seed) > 0
-            else (auto_seed if auto_seed is not None else seed)
+            else (int(auto_seed) if auto_seed is not None else seed)
         )
 
         image_data_payload = {
@@ -565,6 +573,10 @@ class PromptTrackerNode:
                 final_model,
                 final_lora_info,
                 config_value,
+                final_steps,
+                final_cfg,
+                final_denoise,
+                final_seed,
                 source_value,
                 tag_value,
                 output_image_tensor,
