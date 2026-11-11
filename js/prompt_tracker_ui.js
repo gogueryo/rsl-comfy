@@ -3015,12 +3015,11 @@ app.registerExtension({
             }
         };
 
+        // Clean event listener registration using Grok's native "executed" hook pattern
         if (node._autoPromptListener) {
             api.removeEventListener("executed", node._autoPromptListener);
         }
 
-        // ComfyUI emits "executed" once per node per run. auto_capture is a
-        // list with one JSON payload per image (first-only when a single image).
         node._autoPromptListener = async (e) => {
             if (!e.detail) return;
             if (String(e.detail.node) !== String(node.id)) return;
@@ -3131,7 +3130,6 @@ app.registerExtension({
                     return;
                 }
 
-                // Our own add already selected the new item; don't snap back.
                 if (!(isInitiator && action === "add") && currentSelectedId) {
                     const foundIdx = localDb.findIndex(item => item.id === currentSelectedId);
                     if (foundIdx !== -1) {

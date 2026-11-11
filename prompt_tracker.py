@@ -131,7 +131,7 @@ def extract_image_bytes(img_val, active_dir=None, source_master_root=None):
             header, encoded = img_val.split(",", 1)
             return base64.b64decode(encoded)
         elif "/view?filename=" in img_val:
-            from urllib.parse import parse_qs, urlparse
+            from urllib.parse import urlparse, parse_qs
 
             parsed = urlparse(img_val)
             qs = parse_qs(parsed.query)
@@ -149,7 +149,7 @@ def extract_image_bytes(img_val, active_dir=None, source_master_root=None):
                 with open(full_p, "rb") as f:
                     return f.read()
         elif "/prompt_tracker/view_image?filename=" in img_val:
-            from urllib.parse import parse_qs, urlparse
+            from urllib.parse import urlparse, parse_qs
 
             parsed = urlparse(img_val)
             qs = parse_qs(parsed.query)
@@ -307,7 +307,6 @@ def get_all_referenced_images(data_dir):
 
 
 class PromptTrackerNode:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -415,7 +414,6 @@ class PromptTrackerNode:
         node_id=None,
         prompt=None,
     ):
-
         def unwrap(val, default=""):
             v = val
             while isinstance(v, (list, tuple)):
@@ -430,7 +428,6 @@ class PromptTrackerNode:
         raw_auto_neg = unwrap(auto_negative)
         raw_auto_model = unwrap(auto_render_model)
         raw_auto_lora = unwrap(auto_lora_info)
-        final_instance_uuid = unwrap(instance_uuid)
 
         final_prompt = raw_auto if raw_auto.strip() else str(prompt_value or "")
         final_negative = (
@@ -468,8 +465,6 @@ class PromptTrackerNode:
 
         output_image_tensor = None
         should_capture = self.is_auto_prompt(AutoCaptureOn, enable_auto_capture)
-        # One JSON payload per image. ComfyUI's "executed" event delivers the
-        # list once per run; the frontend adds each entry.
         auto_capture_list = []
 
         if raw_auto.strip() and auto_image is not None:
@@ -492,30 +487,34 @@ class PromptTrackerNode:
                         filename = f"rsl_auto_capture_{uuid.uuid4().hex}.png"
                         image_pil.save(os.path.join(output_dir, filename))
 
-                        auto_capture_list.append(json.dumps({
-                            "prompt": raw_auto,
-                            "negative": final_negative,
-                            "category": category_value,
-                            "render_model": final_model,
-                            "lora_info": raw_auto_lora,
-                            "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
-                            "source": source_value or "Auto-Prompt",
-                            "tags": tag_value,
-                            "steps": final_steps,
-                            "cfg": final_cfg,
-                            "denoise": final_denoise,
-                            "seed": final_seed,
-                            "active_db": active_db,
-                            "image_info": {
-                                "image": f"/view?filename={filename}&type=temp&subfolder=",
-                                "steps": final_steps,
-                                "cfg": final_cfg,
-                                "denoise": final_denoise,
-                                "seed": final_seed,
-                                "render_model": final_model,
-                                "lora_info": final_lora_info,
-                            },
-                        }))
+                        auto_capture_list.append(
+                            json.dumps(
+                                {
+                                    "prompt": raw_auto,
+                                    "negative": final_negative,
+                                    "category": category_value,
+                                    "render_model": final_model,
+                                    "lora_info": raw_auto_lora,
+                                    "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
+                                    "source": source_value or "Auto-Prompt",
+                                    "tags": tag_value,
+                                    "steps": final_steps,
+                                    "cfg": final_cfg,
+                                    "denoise": final_denoise,
+                                    "seed": final_seed,
+                                    "active_db": active_db,
+                                    "image_info": {
+                                        "image": f"/view?filename={filename}&type=temp&subfolder=",
+                                        "steps": final_steps,
+                                        "cfg": final_cfg,
+                                        "denoise": final_denoise,
+                                        "seed": final_seed,
+                                        "render_model": final_model,
+                                        "lora_info": final_lora_info,
+                                    },
+                                }
+                            )
+                        )
                 except Exception as e:
                     print(f"[PromptTracker] Error saving auto image: {e}")
 
