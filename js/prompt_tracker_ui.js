@@ -18,7 +18,7 @@ function hideBackendWidgets(node) {
             "auto_lora_info", "auto_image", "auto_steps", "auto_cfg", "auto_denoise", "auto_seed",
             "prompt_value", "negative_value", "category_value", "model_value",
             "loras_value", "config_value", "source_value", "tag_value",
-            "image_value", // <--- Added here
+            "image_value",
             "steps", "cfg", "denoise", "seed", "active_db", "master_root"
         ].includes(w.name)) {
             w.type = "hidden";
@@ -335,7 +335,7 @@ app.registerExtension({
                 if (w.name === "loras_value") {
                     w.value = currentImageInfo.lora_info || activeSelectedLora;
                 }
-                if (w.name === "image_value") w.value = currentImageInfo.image || ""; // <--- Added here for consistency
+                if (w.name === "image_value") w.value = currentImageInfo.image || "";
                 if (w.name === "config_value") w.value = configInput.value.trim();
                 if (w.name === "source_value") w.value = sourceInput.value.trim();
                 if (w.name === "tag_value") w.value = tagInput.value.trim();
@@ -1787,6 +1787,40 @@ app.registerExtension({
         toolBtnGroup.style.alignItems = "center";
         toolBtnGroup.style.gap = "4px";
 
+        const togglePinsBtn = document.createElement("button");
+        togglePinsBtn.innerText = "🔌 Pins";
+        styleButton(togglePinsBtn, false, activeTheme);
+
+        let hiddenInputs = null;
+        let hiddenOutputs = null;
+        let pinsAreHidden = false;
+
+        togglePinsBtn.onclick = (e) => {
+            e.stopPropagation();
+
+            const currentWidth = node.size ? node.size[0] : 300;
+            const currentHeight = node.size ? node.size[1] : 400;
+
+            if (!pinsAreHidden) {
+                hiddenInputs = node.inputs ? [...node.inputs] : [];
+                hiddenOutputs = node.outputs ? [...node.outputs] : [];
+                node.inputs = [];
+                node.outputs = [];
+                pinsAreHidden = true;
+                togglePinsBtn.style.opacity = "0.5";
+                setStatus("Pins hidden");
+            } else {
+                if (hiddenInputs) node.inputs = [...hiddenInputs];
+                if (hiddenOutputs) node.outputs = [...hiddenOutputs];
+                pinsAreHidden = false;
+                togglePinsBtn.style.opacity = "1.0";
+                setStatus("Pins visible");
+            }
+
+            node.setSize([currentWidth, currentHeight]);
+            node.setDirtyCanvas(true, true);
+        };
+
         const toggleLabel = document.createElement("label");
         toggleLabel.style.display = "flex";
         toggleLabel.style.alignItems = "center";
@@ -1855,6 +1889,7 @@ app.registerExtension({
         toolBtnGroup.appendChild(fontUpBtn);
         toolBtnGroup.appendChild(themeDropdown);
         toolBtnGroup.appendChild(copyBtn);
+        toolBtnGroup.appendChild(togglePinsBtn);
         topToolbar.appendChild(counterBadge);
         topToolbar.appendChild(toolBtnGroup);
 
@@ -3438,6 +3473,7 @@ app.registerExtension({
                 : 'rsl-' + Math.random().toString(36).substring(2, 9) + '-' + Math.floor(Math.random() * 100000);
 
             syncFromProperties();
+
             hideBackendWidgets(this);
             const enableWidget = this.widgets?.find(w => w.name === "enable_auto_capture");
             if (enableWidget) {
