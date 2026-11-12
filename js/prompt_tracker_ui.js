@@ -2865,7 +2865,7 @@ app.registerExtension({
         const listContainer = document.createElement("div");
         listContainer.tabIndex = 0;
         listContainer.style.flex = "1 1 0px";
-        listContainer.style.minHeight = "0";
+        listContainer.style.minHeight = "100px"; // 2 rows min
         listContainer.style.overflowY = "scroll";
         listContainer.style.scrollbarWidth = "thin";
         listContainer.style.border = `1px solid ${activeTheme.border}`;
