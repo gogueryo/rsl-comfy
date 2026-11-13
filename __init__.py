@@ -1,10 +1,13 @@
 from .lora_description_editor import LoraDescriptionEditorNode
 from .prompt_tracker import PromptTrackerNode
-from .prompt_driver import PromptDriverNode  # <--- 1. Import Prompt Driver backend
+from .prompt_driver import PromptDriverNode
 from .multi_bus import MultiBusReroute
 from .multi_bus_link import MultiBusLinkReroute
 from .text_regex import RegexExtractAllNode, RegexReplaceAllNode
 from .if_else_check_input import IfElseCheckInputNode
+
+# <--- 1. Import new Bus Link conditional node
+from .if_else_bus_link import IfElseBusLinkNode
 from .if_else_int import IfElseIntNode
 from .if_else_float import IfElseFloatNode
 from .if_else_text import IfElseTextNode
@@ -23,12 +26,13 @@ from .rsl_lora_stacker import RSLLoraStackerNode
 NODE_CLASS_MAPPINGS = {
     "LoraDescriptionEditor": LoraDescriptionEditorNode,
     "PromptTrackerNode": PromptTrackerNode,
-    "PromptDriverNode": PromptDriverNode,  # <--- 2. Add class mapping
+    "PromptDriverNode": PromptDriverNode,
     "MultiBusReroute": MultiBusReroute,
     "MultiBusLinkReroute": MultiBusLinkReroute,
     "RegexExtractAllNode": RegexExtractAllNode,
     "RegexReplaceAllNode": RegexReplaceAllNode,
     "IfElseCheckInput": IfElseCheckInputNode,
+    "IfElseBusLink": IfElseBusLinkNode,  # <--- 2. Add class mapping
     "IfElseInt": IfElseIntNode,
     "IfElseFloat": IfElseFloatNode,
     "IfElseText": IfElseTextNode,
@@ -48,12 +52,13 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoraDescriptionEditor": "rsl Lora Description Editor",
     "PromptTrackerNode": "rsl Prompt Tracker & Library",
-    "PromptDriverNode": "rsl Prompt Driver",  # <--- 3. Add clean display name
+    "PromptDriverNode": "rsl Prompt Driver",
     "MultiBusReroute": "rsl Multi-Bus Reroute",
     "MultiBusLinkReroute": "rsl Multi-Bus Link Reroute",
     "RegexExtractAllNode": "rsl Regex Extract All",
     "RegexReplaceAllNode": "rsl Regex Replace All",
     "IfElseCheckInput": "rsl If Else Check Input",
+    "IfElseBusLink": "rsl If Else Bus Link",  # <--- 3. Add clean display name
     "IfElseInt": "rsl If Else Int",
     "IfElseFloat": "rsl If Else Float",
     "IfElseText": "rsl If Else Text",
