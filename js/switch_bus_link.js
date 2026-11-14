@@ -5,20 +5,22 @@ app.registerExtension({
     name: "RSL.SwitchBusLinkUI",
     async loadedGraphNode(node) {
         if (node.comfyClass === "SwitchBusLink") {
+            node._rslIsConfiguring = true;
             setupSwitchBusNode(node);
-            if (!node.inputs) {
-                node.inputs = [{ name: "select", type: "COMBO", widget: { name: "select" } }];
-            }
             updateSelectWidget(node);
+            node._rslIsConfiguring = false;
         }
     },
     nodeCreated(node) {
         if (node.comfyClass === "SwitchBusLink") {
             if (!node.properties) node.properties = {};
 
-            node.inputs = [
-                { name: "select", type: "COMBO", widget: { name: "select" } }
-            ];
+            // Only ensure the select widget exists; never inject dummy slots on creation
+            if (!node.inputs || node.inputs.length === 0) {
+                node.inputs = [
+                    { name: "select", type: "COMBO", widget: { name: "select" } }
+                ];
+            }
 
             setupSwitchBusNode(node);
             updateSelectWidget(node);
@@ -68,7 +70,6 @@ function setupSwitchBusNode(node) {
 
     applyNodeTheme(node);
 
-    // Ensure outputs are strictly defined as RSL_BUS_LINK on creation if not already set
     if (node.outputs) {
         node.outputs.forEach(out => {
             if (out.name === "bus_output") {
@@ -77,7 +78,7 @@ function setupSwitchBusNode(node) {
         });
     }
 
-    // Strictly enforce RSL_BUS_LINK type for all INPUT connections
+    // Auto-expansion: spawn next slot if connecting to the last slot or dragging onto full node
     const originalOnConnectInput = node.onConnectInput;
     node.onConnectInput = function (target_slot, type, output, counterpart_node, counterpart_slot) {
         if (output && output.type !== "RSL_BUS_LINK") {
@@ -90,8 +91,16 @@ function setupSwitchBusNode(node) {
         }
 
         const busInputs = getBusInputs(this);
+
+        // If completely empty, allow creating the first slot
+        if (busInputs.length === 0) {
+            this.inputs.push({ name: "bus_1", type: "RSL_BUS_LINK" });
+            updateSelectWidget(this);
+            return true;
+        }
+
         const lastInput = busInputs[busInputs.length - 1];
-        if (!lastInput || (lastInput.link !== null && lastInput.link !== undefined)) {
+        if (!lastInput || target_slot === this.inputs.indexOf(lastInput) || (lastInput.link !== null && lastInput.link !== undefined)) {
             let counter = busInputs.length + 1;
             let finalName = `bus_${counter}`;
             while (this.inputs.some(i => i.name === finalName)) {
@@ -104,7 +113,6 @@ function setupSwitchBusNode(node) {
         return true;
     };
 
-    // Strictly enforce RSL_BUS_LINK type for all OUTPUT connections (e.g., bus_output)
     const originalOnConnectOutput = node.onConnectOutput;
     node.onConnectOutput = function (slot, type, input_slot, target_node, target_slot) {
         const output = this.outputs[slot];
@@ -134,9 +142,11 @@ function setupSwitchBusNode(node) {
 
     const origOnConfigure = node.onConfigure;
     node.onConfigure = function (info) {
+        node._rslIsConfiguring = true;
         if (origOnConfigure) origOnConfigure.apply(this, arguments);
         applyNodeTheme(this);
         updateSelectWidget(this);
+        node._rslIsConfiguring = false;
     };
 }
 
