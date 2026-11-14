@@ -89,14 +89,6 @@ function updateSelectWidget(node, oldName = null, newName = null) {
         selectWidget.value = busNames[0];
     }
 
-    // Lock widget if select input slot has an active link
-    const selectSlot = node.inputs?.find(i => i.name === "select");
-    if (selectSlot && selectSlot.link !== null && selectSlot.link !== undefined) {
-        selectWidget.disabled = true;
-    } else {
-        selectWidget.disabled = false;
-    }
-
     node.size = node.computeSize();
     node.setDirtyCanvas(true, true);
 }
