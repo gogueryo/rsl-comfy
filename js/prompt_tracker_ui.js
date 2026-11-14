@@ -3020,9 +3020,17 @@ app.registerExtension({
             api.removeEventListener("executed", node._autoPromptListener);
         }
 
+        node._lastPromptId = null; // Track last processed prompt execution ID
+
         node._autoPromptListener = async (e) => {
             if (!e.detail) return;
             if (String(e.detail.node) !== String(node.id)) return;
+
+            // Prevent duplicate handling of the exact same workflow execution run
+            const promptId = e.detail.prompt_id || e.detail.id;
+            if (promptId && node._lastPromptId === promptId) return;
+            if (promptId) node._lastPromptId = promptId;
+
             const output = e.detail.output || {};
             const payloads = (output.auto_capture || []).filter(Boolean);
             if (payloads.length === 0) return;
@@ -3030,6 +3038,7 @@ app.registerExtension({
             let added = 0;
             let lastDetail = null;
             try {
+                // Loop through all N items/frames in the batch payload
                 for (const raw of payloads) {
                     let detail;
                     try { detail = JSON.parse(raw); } catch { continue; }
@@ -3088,11 +3097,11 @@ app.registerExtension({
                     }
                     setStatus(added === 1
                         ? "Auto-prompt added and selected"
-                        : `Added ${added} prompts; selected the latest`);
+                        : `Added ${added} prompts from batch; selected the latest`);
                 }
             } catch (err) {
-                console.error("Failed to auto-add wired prompt:", err);
-                setStatus("Failed to auto-add wired prompt", true);
+                console.error("Failed to auto-add wired prompts:", err);
+                setStatus("Failed to auto-add wired prompts", true);
             }
         };
 

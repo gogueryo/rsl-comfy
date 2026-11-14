@@ -474,47 +474,48 @@ class PromptTrackerNode:
                     output_dir = folder_paths.get_temp_directory()
                     os.makedirs(output_dir, exist_ok=True)
 
+                    # Instead of looping over all frames and adding multiple entries,
+                    # capture just the primary generated frame payload once:
                     if isinstance(auto_image, torch.Tensor) and auto_image.ndim == 4:
-                        frames = [auto_image[i] for i in range(auto_image.shape[0])]
+                        tensor_to_save = auto_image[0]
                     else:
-                        frames = [auto_image]
+                        tensor_to_save = auto_image
 
-                    for tensor_to_save in frames:
-                        image_np = 255.0 * tensor_to_save.detach().cpu().numpy()
-                        image_np = np.clip(image_np, 0, 255).astype(np.uint8)
-                        image_pil = Image.fromarray(image_np)
+                    image_np = 255.0 * tensor_to_save.detach().cpu().numpy()
+                    image_np = np.clip(image_np, 0, 255).astype(np.uint8)
+                    image_pil = Image.fromarray(image_np)
 
-                        filename = f"rsl_auto_capture_{uuid.uuid4().hex}.png"
-                        image_pil.save(os.path.join(output_dir, filename))
+                    filename = f"rsl_auto_capture_{uuid.uuid4().hex}.png"
+                    image_pil.save(os.path.join(output_dir, filename))
 
-                        auto_capture_list.append(
-                            json.dumps(
-                                {
-                                    "prompt": raw_auto,
-                                    "negative": final_negative,
-                                    "category": category_value,
-                                    "render_model": final_model,
-                                    "lora_info": raw_auto_lora,
-                                    "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
-                                    "source": source_value or "Auto-Prompt",
-                                    "tags": tag_value,
+                    auto_capture_list.append(
+                        json.dumps(
+                            {
+                                "prompt": raw_auto,
+                                "negative": final_negative,
+                                "category": category_value,
+                                "render_model": final_model,
+                                "lora_info": raw_auto_lora,
+                                "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
+                                "source": source_value or "Auto-Prompt",
+                                "tags": tag_value,
+                                "steps": final_steps,
+                                "cfg": final_cfg,
+                                "denoise": final_denoise,
+                                "seed": final_seed,
+                                "active_db": active_db,
+                                "image_info": {
+                                    "image": f"/view?filename={filename}&type=temp&subfolder=",
                                     "steps": final_steps,
                                     "cfg": final_cfg,
                                     "denoise": final_denoise,
                                     "seed": final_seed,
-                                    "active_db": active_db,
-                                    "image_info": {
-                                        "image": f"/view?filename={filename}&type=temp&subfolder=",
-                                        "steps": final_steps,
-                                        "cfg": final_cfg,
-                                        "denoise": final_denoise,
-                                        "seed": final_seed,
-                                        "render_model": final_model,
-                                        "lora_info": final_lora_info,
-                                    },
-                                }
-                            )
+                                    "render_model": final_model,
+                                    "lora_info": raw_auto_lora,
+                                },
+                            }
                         )
+                    )
                 except Exception as e:
                     print(f"[PromptTracker] Error saving auto image: {e}")
 
