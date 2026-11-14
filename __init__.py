@@ -5,8 +5,6 @@ from .multi_bus import MultiBusReroute
 from .multi_bus_link import MultiBusLinkReroute
 from .text_regex import RegexExtractAllNode, RegexReplaceAllNode
 from .if_else_check_input import IfElseCheckInputNode
-
-# <--- 1. Import new Bus Link conditional node
 from .if_else_bus_link import IfElseBusLinkNode
 from .if_else_int import IfElseIntNode
 from .if_else_float import IfElseFloatNode
@@ -22,6 +20,9 @@ from .directory_selector import RSLDirectorySelector
 from .rsl_draggable_preview import RSLDraggablePreviewNode
 from .rsl_lora_loader import RSLLoraLoader
 from .rsl_lora_stacker import RSLLoraStackerNode
+from .switch_bus_link import (
+    SwitchBusLinkNode,
+)  # <--- 1. Import new Switch Bus Link node
 
 NODE_CLASS_MAPPINGS = {
     "LoraDescriptionEditor": LoraDescriptionEditorNode,
@@ -32,7 +33,7 @@ NODE_CLASS_MAPPINGS = {
     "RegexExtractAllNode": RegexExtractAllNode,
     "RegexReplaceAllNode": RegexReplaceAllNode,
     "IfElseCheckInput": IfElseCheckInputNode,
-    "IfElseBusLink": IfElseBusLinkNode,  # <--- 2. Add class mapping
+    "IfElseBusLink": IfElseBusLinkNode,
     "IfElseInt": IfElseIntNode,
     "IfElseFloat": IfElseFloatNode,
     "IfElseText": IfElseTextNode,
@@ -47,6 +48,7 @@ NODE_CLASS_MAPPINGS = {
     "RSLDraggablePreviewNode": RSLDraggablePreviewNode,
     "RSLLoraLoader": RSLLoraLoader,
     "RSLLoraStackerNode": RSLLoraStackerNode,
+    "SwitchBusLink": SwitchBusLinkNode,  # <--- 2. Add class mapping
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -58,7 +60,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "RegexExtractAllNode": "rsl Regex Extract All",
     "RegexReplaceAllNode": "rsl Regex Replace All",
     "IfElseCheckInput": "rsl If Else Check Input",
-    "IfElseBusLink": "rsl If Else Bus Link",  # <--- 3. Add clean display name
+    "IfElseBusLink": "rsl If Else Bus Link",
     "IfElseInt": "rsl If Else Int",
     "IfElseFloat": "rsl If Else Float",
     "IfElseText": "rsl If Else Text",
@@ -73,6 +75,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "RSLDraggablePreviewNode": "rsl Draggable Preview Image",
     "RSLLoraLoader": "rsl LoRA Loader (with Meta Output)",
     "RSLLoraStackerNode": "rsl LoRA Stacker",
+    "SwitchBusLink": "rsl Switch Bus Link",  # <--- 3. Add clean display name
 }
 
 WEB_DIRECTORY = "js"
