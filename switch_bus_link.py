@@ -1,7 +1,8 @@
 class SwitchBusLinkNode:
     DESCRIPTION = (
-        "Dynamically switches between multiple RSL_BUS_LINK inputs based on a dropdown selector.\n\n"
-        "• Strict RSL_BUS_LINK type enforcement across all inputs and outputs.\n"
+        "Dynamically switches between multiple RSL_BUS_LINK inputs based on a string selector.\n\n"
+        "• Strict RSL_BUS_LINK type enforcement across all bus inputs and outputs.\n"
+        "• Accepts external STRING connections on 'select' or dropdown selection.\n"
         "• Outputs the selected bus bundle, selected input name, and comma-separated list of items."
     )
 
@@ -10,10 +11,10 @@ class SwitchBusLinkNode:
         return {
             "required": {
                 "select": (
-                    [],
+                    "STRING",
                     {
-                        "default": "",
-                        "tooltip": "Dropdown to select which bus input to output.",
+                        "default": "bus_1",
+                        "tooltip": "Dropdown selection or incoming STRING wire from outside.",
                     },
                 ),
             },
@@ -29,7 +30,7 @@ class SwitchBusLinkNode:
     FUNCTION = "switch_bus"
     CATEGORY = "rsl/utils"
 
-    def switch_bus(self, select="", **kwargs):
+    def switch_bus(self, select="bus_1", **kwargs):
         selected_bus = kwargs.get(select, None)
         selected_output = selected_bus if selected_bus is not None else {}
 

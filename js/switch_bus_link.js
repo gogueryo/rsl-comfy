@@ -5,25 +5,31 @@ app.registerExtension({
     name: "RSL.SwitchBusLinkUI",
     async loadedGraphNode(node) {
         if (node.comfyClass === "SwitchBusLink") {
-            node._rslIsConfiguring = true;
+            node._isWorkflowLoad = true;
             setupSwitchBusNode(node);
+            ensureSelectSlotAndWidget(node);
             updateSelectWidget(node);
-            node._rslIsConfiguring = false;
         }
     },
     nodeCreated(node) {
         if (node.comfyClass === "SwitchBusLink") {
             if (!node.properties) node.properties = {};
 
-            // Only ensure the select widget exists; never inject dummy slots on creation
-            if (!node.inputs || node.inputs.length === 0) {
-                node.inputs = [
-                    { name: "select", type: "COMBO", widget: { name: "select" } }
-                ];
-            }
-
+            node._isWorkflowLoad = false;
+            ensureSelectSlotAndWidget(node);
             setupSwitchBusNode(node);
-            updateSelectWidget(node);
+
+            // Run right after the current synchronous execution stack finishes 
+            // (after onConfigure / loadedGraphNode have had a chance to flag reloads)
+            Promise.resolve().then(() => {
+                if (!node._isWorkflowLoad) {
+                    const busInputs = getBusInputs(node);
+                    if (busInputs.length === 0) {
+                        node.inputs.push({ name: "bus_1", type: "RSL_BUS_LINK" });
+                        updateSelectWidget(node);
+                    }
+                }
+            });
         }
     }
 });
@@ -39,12 +45,37 @@ function getBusInputs(node) {
     return (node.inputs || []).filter(inp => inp.name && inp.name !== "select");
 }
 
+function ensureSelectSlotAndWidget(node) {
+    if (!node.inputs) node.inputs = [];
+    let selectSlot = node.inputs.find(i => i.name === "select");
+    if (!selectSlot) {
+        node.inputs.unshift({ name: "select", type: "STRING", link: null });
+    } else {
+        selectSlot.type = "STRING";
+    }
+
+    if (!node.widgets) node.widgets = [];
+    let selectWidget = node.widgets.find(w => w.name === "select");
+    if (!selectWidget) {
+        node.widgets.unshift({
+            name: "select",
+            type: "combo",
+            value: "bus_1",
+            options: { values: ["bus_1"] }
+        });
+    }
+}
+
 function updateSelectWidget(node, oldName = null, newName = null) {
     const selectWidget = node.widgets?.find(w => w.name === "select");
     if (!selectWidget) return;
 
     const busInputs = getBusInputs(node).filter(inp => inp.name);
     const busNames = busInputs.map(inp => inp.name);
+
+    if (busNames.length === 0) {
+        busNames.push("bus_1");
+    }
 
     selectWidget.type = "combo";
     selectWidget.options = selectWidget.options || {};
@@ -55,7 +86,15 @@ function updateSelectWidget(node, oldName = null, newName = null) {
     }
 
     if (!busNames.includes(selectWidget.value)) {
-        selectWidget.value = busNames.length > 0 ? busNames[0] : "";
+        selectWidget.value = busNames[0];
+    }
+
+    // Lock widget if select input slot has an active link
+    const selectSlot = node.inputs?.find(i => i.name === "select");
+    if (selectSlot && selectSlot.link !== null && selectSlot.link !== undefined) {
+        selectWidget.disabled = true;
+    } else {
+        selectWidget.disabled = false;
     }
 
     node.size = node.computeSize();
@@ -69,6 +108,7 @@ function setupSwitchBusNode(node) {
     if (!node.properties) node.properties = {};
 
     applyNodeTheme(node);
+    ensureSelectSlotAndWidget(node);
 
     if (node.outputs) {
         node.outputs.forEach(out => {
@@ -78,9 +118,21 @@ function setupSwitchBusNode(node) {
         });
     }
 
-    // Auto-expansion: spawn next slot if connecting to the last slot or dragging onto full node
+    const originalOnConnectionsChange = node.onConnectionsChange;
+    node.onConnectionsChange = function (type, index, connected, link_info) {
+        if (originalOnConnectionsChange) {
+            originalOnConnectionsChange.apply(this, arguments);
+        }
+        updateSelectWidget(this);
+    };
+
     const originalOnConnectInput = node.onConnectInput;
     node.onConnectInput = function (target_slot, type, output, counterpart_node, counterpart_slot) {
+        const targetInput = this.inputs[target_slot];
+        if (targetInput && targetInput.name === "select") {
+            return output && (output.type === "STRING" || output.type === "*");
+        }
+
         if (output && output.type !== "RSL_BUS_LINK") {
             return false;
         }
@@ -91,15 +143,8 @@ function setupSwitchBusNode(node) {
         }
 
         const busInputs = getBusInputs(this);
-
-        // If completely empty, allow creating the first slot
-        if (busInputs.length === 0) {
-            this.inputs.push({ name: "bus_1", type: "RSL_BUS_LINK" });
-            updateSelectWidget(this);
-            return true;
-        }
-
         const lastInput = busInputs[busInputs.length - 1];
+
         if (!lastInput || target_slot === this.inputs.indexOf(lastInput) || (lastInput.link !== null && lastInput.link !== undefined)) {
             let counter = busInputs.length + 1;
             let finalName = `bus_${counter}`;
@@ -142,11 +187,11 @@ function setupSwitchBusNode(node) {
 
     const origOnConfigure = node.onConfigure;
     node.onConfigure = function (info) {
-        node._rslIsConfiguring = true;
+        this._isWorkflowLoad = true;
         if (origOnConfigure) origOnConfigure.apply(this, arguments);
         applyNodeTheme(this);
+        ensureSelectSlotAndWidget(this);
         updateSelectWidget(this);
-        node._rslIsConfiguring = false;
     };
 }
 
@@ -275,7 +320,7 @@ function openSwitchBusFloatingMenu(node) {
             nameInput.addEventListener("input", (e) => {
                 const newName = e.target.value.trim();
                 if (newName) {
-                    const currentNames = getBusInputs(node).map(i => i.name);
+                    const busInputs = getBusInputs(node);
                     const isDuplicate = busInputs.some((otherInp, otherIdx) => otherIdx !== index && otherInp.name === newName);
 
                     if (!isDuplicate) {
