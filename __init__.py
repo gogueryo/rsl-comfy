@@ -20,9 +20,8 @@ from .directory_selector import RSLDirectorySelector
 from .rsl_draggable_preview import RSLDraggablePreviewNode
 from .rsl_lora_loader import RSLLoraLoader
 from .rsl_lora_stacker import RSLLoraStackerNode
-from .switch_bus_link import (
-    SwitchBusLinkNode,
-)  # <--- 1. Import new Switch Bus Link node
+from .switch_bus_link import SwitchBusLinkNode
+from .switch_any import SwitchAnyNode
 
 NODE_CLASS_MAPPINGS = {
     "LoraDescriptionEditor": LoraDescriptionEditorNode,
@@ -48,7 +47,8 @@ NODE_CLASS_MAPPINGS = {
     "RSLDraggablePreviewNode": RSLDraggablePreviewNode,
     "RSLLoraLoader": RSLLoraLoader,
     "RSLLoraStackerNode": RSLLoraStackerNode,
-    "SwitchBusLink": SwitchBusLinkNode,  # <--- 2. Add class mapping
+    "SwitchBusLink": SwitchBusLinkNode,
+    "SwitchAny": SwitchAnyNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -75,7 +75,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "RSLDraggablePreviewNode": "rsl Draggable Preview Image",
     "RSLLoraLoader": "rsl LoRA Loader (with Meta Output)",
     "RSLLoraStackerNode": "rsl LoRA Stacker",
-    "SwitchBusLink": "rsl Switch Bus Link",  # <--- 3. Add clean display name
+    "SwitchBusLink": "rsl Switch Bus Link",
+    "SwitchAny": "rsl Switch Any",
 }
 
 WEB_DIRECTORY = "js"
