@@ -19,7 +19,7 @@ function hideBackendWidgets(node) {
             "prompt_value", "negative_value", "category_value", "model_value",
             "loras_value", "config_value", "source_value", "tag_value",
             "image_value",
-            "steps", "cfg", "denoise", "seed", "active_db", "master_root"
+            "steps", "cfg", "denoise", "seed", "active_db", "master_root", "instance_uuid"
         ].includes(w.name)) {
             w.type = "hidden";
             w.computeSize = () => [0, -4];
@@ -350,6 +350,7 @@ app.registerExtension({
                 if (w.name === "AutoCaptureOn") w.value = autoCaptureState;
                 if (w.name === "active_db") w.value = currentDbName;
                 if (w.name === "master_root") w.value = node.properties.master_root;
+                if (w.name === "instance_uuid") w.value = getInstanceUuid();
             });
         }
 
@@ -3015,7 +3016,7 @@ app.registerExtension({
             }
         };
 
-        // Clean event listener registration using Grok's native "executed" hook pattern
+        // Clean event listener registration scoped strictly to this node's instance_uuid
         if (node._autoPromptListener) {
             api.removeEventListener("executed", node._autoPromptListener);
         }
@@ -3024,25 +3025,29 @@ app.registerExtension({
 
         node._autoPromptListener = async (e) => {
             if (!e.detail) return;
-            if (String(e.detail.node) !== String(node.id)) return;
+
+            const output = e.detail.output || {};
+            const payloads = (output.auto_capture || []).filter(Boolean);
+            if (payloads.length === 0) return;
+
+            // Verify that the auto-capture payload explicitly targets this specific node instance UUID
+            const targetInstanceUuid = getInstanceUuid();
+            const matchingPayloads = payloads.map(raw => {
+                try { return JSON.parse(raw); } catch { return null; }
+            }).filter(detail => detail && detail.prompt && String(detail.instance_uuid || "") === String(targetInstanceUuid));
+
+            if (matchingPayloads.length === 0) return;
 
             // Prevent duplicate handling of the exact same workflow execution run
             const promptId = e.detail.prompt_id || e.detail.id;
             if (promptId && node._lastPromptId === promptId) return;
             if (promptId) node._lastPromptId = promptId;
 
-            const output = e.detail.output || {};
-            const payloads = (output.auto_capture || []).filter(Boolean);
-            if (payloads.length === 0) return;
-
             let added = 0;
             let lastDetail = null;
             try {
-                // Loop through all N items/frames in the batch payload
-                for (const raw of payloads) {
-                    let detail;
-                    try { detail = JSON.parse(raw); } catch { continue; }
-                    if (!detail || !detail.prompt) continue;
+                // Loop through all N items/frames in the batch payload matching this instance
+                for (const detail of matchingPayloads) {
                     lastDetail = detail;
 
                     const res = await api.fetchApi("/prompt_tracker/add", {
@@ -3062,7 +3067,7 @@ app.registerExtension({
                             starred: false,
                             master_root: node.properties.master_root,
                             source_master_root: node.properties.master_root || "",
-                            instance_uuid: getInstanceUuid()
+                            instance_uuid: targetInstanceUuid
                         })
                     });
                     const data = await res.json();

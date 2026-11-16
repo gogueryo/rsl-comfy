@@ -2,6 +2,7 @@ import os
 import time
 import json
 import uuid
+import threading
 import torch
 import numpy as np
 from PIL import Image
@@ -16,6 +17,9 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(CURRENT_DIR, "data", "prompts")
 CONFIG_FILE = os.path.join(CURRENT_DIR, "master_config.json")
 os.makedirs(DATA_DIR, exist_ok=True)
+
+# Thread lock to prevent race conditions across concurrent asynchronous backend calls
+db_lock = threading.Lock()
 
 
 def get_master_dir():
@@ -32,8 +36,9 @@ def get_master_dir():
 
 
 def set_master_dir(path):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump({"master_dir": path}, f, indent=2)
+    with db_lock:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump({"master_dir": path}, f, indent=2)
 
 
 def get_active_data_dir():
@@ -84,25 +89,32 @@ def get_db_path(db_name, active_dir=None):
 
 
 def load_db_file(db_name, active_dir=None):
-    path = get_db_path(db_name, active_dir)
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                for item in data:
-                    if not item.get("id"):
-                        item["id"] = str(uuid.uuid4())
-                return data
-        except Exception:
-            return []
-    return []
+    with db_lock:
+        path = get_db_path(db_name, active_dir)
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for item in data:
+                        if not item.get("id"):
+                            item["id"] = str(uuid.uuid4())
+                    return data
+            except Exception:
+                return []
+        return []
 
 
 def save_db_file(db_name, data, active_dir=None):
-    path = get_db_path(db_name, active_dir)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    with db_lock:
+        path = get_db_path(db_name, active_dir)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        # Write to a temporary file first, then atomically replace the target file.
+        # This prevents network drives from exposing half-written or corrupted JSON states.
+        temp_path = path + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(temp_path, path)
 
 
 def broadcast_database_refresh(
@@ -339,6 +351,7 @@ class PromptTrackerNode:
                 "seed": ("INT", {"default": 0}),
                 "active_db": ("STRING", {"default": "prompts_db"}),
                 "master_root": ("STRING", {"default": ""}),
+                "instance_uuid": ("STRING", {"default": ""}),
             },
             "hidden": {"node_id": "UNIQUE_ID", "prompt": "PROMPT"},
         }
@@ -474,8 +487,6 @@ class PromptTrackerNode:
                     output_dir = folder_paths.get_temp_directory()
                     os.makedirs(output_dir, exist_ok=True)
 
-                    # Instead of looping over all frames and adding multiple entries,
-                    # capture just the primary generated frame payload once:
                     if isinstance(auto_image, torch.Tensor) and auto_image.ndim == 4:
                         tensor_to_save = auto_image[0]
                     else:
@@ -504,6 +515,9 @@ class PromptTrackerNode:
                                 "denoise": final_denoise,
                                 "seed": final_seed,
                                 "active_db": active_db,
+                                "instance_uuid": (
+                                    str(instance_uuid) if instance_uuid else ""
+                                ),
                                 "image_info": {
                                     "image": f"/view?filename={filename}&type=temp&subfolder=",
                                     "steps": final_steps,
@@ -710,6 +724,9 @@ async def add_prompt(request):
 
         db_data.append(entry)
         save_db_file(db_name, db_data, active_dir)
+        print(
+            f"[PromptTracker] **************** adding image: {entry.get('id')} | Source: {entry.get('source')} | Prompt: {entry.get('prompt')[:30]}..."
+        )
 
         broadcast_database_refresh(
             db_name=db_name,
@@ -1154,8 +1171,7 @@ async def audit_broken_images_handler(request):
             if not os.path.exists(db_path):
                 continue
 
-            with open(db_path, "r", encoding="utf-8") as f:
-                entries = json.load(f)
+            entries = load_db_file(db_name, active_dir)
 
             db_modified_flag = False
             broken_count = 0
