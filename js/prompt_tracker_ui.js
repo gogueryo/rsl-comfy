@@ -148,9 +148,12 @@ app.registerExtension({
 
         if (!node.properties) node.properties = {};
         if (!node.properties.selected_database) node.properties.selected_database = "prompts_db";
-        if (!node.properties.master_root) node.properties.master_root = "";
+        if (node.properties.master_root === undefined) node.properties.master_root = "";
 
-        const getInstanceUuid = () => {
+        let reloadEpoch = 0;
+        let isConfiguring = false;
+
+        const ensureInstanceUuid = () => {
             if (!node.properties.instanceUuid) {
                 node.properties.instanceUuid = (typeof crypto !== 'undefined' && crypto.randomUUID)
                     ? crypto.randomUUID()
@@ -158,6 +161,8 @@ app.registerExtension({
             }
             return node.properties.instanceUuid;
         };
+
+        const getInstanceUuid = () => ensureInstanceUuid();
 
         if (node.properties.selected_prompt_text === undefined) node.properties.selected_prompt_text = null;
         if (node.properties.promptFontSize === undefined) node.properties.promptFontSize = 12;
@@ -214,7 +219,6 @@ app.registerExtension({
         function updateDirtyStateUI() {
             const item = getOriginalItemData();
             const red = "#ef4444";
-            const defFocus = activeTheme.borderFocus || "#4f46e5";
             const defNeg = activeTheme.negBoxBorder || "#f472b6";
             const defBlue = activeTheme.blueBoxBorder || "#38bdf8";
             const defaultBorder = activeTheme.border;
@@ -349,7 +353,7 @@ app.registerExtension({
                 if (w.name === "seed") w.value = currentImageInfo.seed;
                 if (w.name === "AutoCaptureOn") w.value = autoCaptureState;
                 if (w.name === "active_db") w.value = currentDbName;
-                if (w.name === "master_root") w.value = node.properties.master_root;
+                if (w.name === "master_root") w.value = node.properties.master_root || "";
                 if (w.name === "instance_uuid") w.value = getInstanceUuid();
             });
         }
@@ -523,6 +527,10 @@ app.registerExtension({
                 lightboxOverlay.style.height = "100%";
                 lightboxOverlay.style.zIndex = "30";
                 lightboxFullscreenBtn.innerText = "⛶ Fullscreen";
+            }
+
+            if (lightboxOverlay.style.display === "flex") {
+                focusLightboxOverlay();
             }
         }
 
@@ -1011,6 +1019,17 @@ app.registerExtension({
             updateStarButtonState();
         }
 
+        function focusLightboxOverlay() {
+            requestAnimationFrame(() => {
+                lightboxOverlay.focus({ preventScroll: true });
+                setTimeout(() => {
+                    if (lightboxOverlay.style.display === "flex" && document.activeElement !== lightboxOverlay) {
+                        lightboxOverlay.focus({ preventScroll: true });
+                    }
+                }, 20);
+            });
+        }
+
         function openLightboxForCurrentSelection() {
             if (currentImageInfo.image) {
                 setFullscreen(false);
@@ -1026,7 +1045,8 @@ app.registerExtension({
                 updateLightboxHudFields();
                 previewCurrentPos = null;
                 lightboxOverlay.style.display = "flex";
-                lightboxOverlay.focus();
+                // lightboxOverlay.focus();
+                focusLightboxOverlay();
                 setStatus("Opened preview lightbox HUD");
             } else {
                 setStatus("No image available to preview", true);
@@ -1154,7 +1174,7 @@ app.registerExtension({
 
             setImageInfo(currentImageInfo, embedCheck.checked);
             updateLightboxHudFields();
-            await fetchAndRender();
+            await fetchAndRender(false);
             setStatus("Saved prompt and image updates successfully!");
         };
 
@@ -1458,6 +1478,7 @@ app.registerExtension({
                     setStatus("Failed to export images", true);
                 }
             } else {
+                reloadEpoch += 1;
                 node.properties.master_root = chosenPath;
                 masterPathInput.value = chosenPath;
                 masterPathInput.title = chosenPath;
@@ -1466,8 +1487,8 @@ app.registerExtension({
                 updateBackendWidgets();
                 selectedIndex = null;
                 setActiveSelection("", "", null, false);
-                await updateDbDropdown();
-                await fetchAndRender(true);
+                await updateDbDropdown(reloadEpoch);
+                await fetchAndRender(true, reloadEpoch);
                 setStatus(`Set Instance Root to: '${chosenPath}'`);
                 dirModalOverlay.style.display = "none";
             }
@@ -1904,14 +1925,18 @@ app.registerExtension({
 
         dbSelect.onchange = async (e) => {
             e.stopPropagation();
+            reloadEpoch += 1;
+            const epoch = reloadEpoch;
             currentDbName = dbSelect.value;
             node.properties.selected_database = currentDbName;
             updateBackendWidgets();
             selectedIndex = null;
             node.properties.selected_prompt_text = null;
             setActiveSelection("", "", null, false);
-            await fetchAndRender(true);
-            setStatus(`Switched DB to: '${currentDbName}'`);
+            await fetchAndRender(true, epoch);
+            if (epoch === reloadEpoch) {
+                setStatus(`Switched DB to: '${currentDbName}'`);
+            }
         };
 
         const refreshDbBtn = document.createElement("button");
@@ -1919,8 +1944,13 @@ app.registerExtension({
         styleButton(refreshDbBtn, false, activeTheme);
         refreshDbBtn.onclick = async (e) => {
             e.stopPropagation();
-            await fetchAndRender(false);
-            setStatus("Refreshed database view");
+            reloadEpoch += 1;
+            const epoch = reloadEpoch;
+            await updateDbDropdown(epoch);
+            await fetchAndRender(false, epoch);
+            if (epoch === reloadEpoch) {
+                setStatus("Refreshed database list and view");
+            }
         };
 
         const newDbBtn = document.createElement("button");
@@ -1934,14 +1964,16 @@ app.registerExtension({
                     method: "POST",
                     body: JSON.stringify({ db: newDb, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                 });
+                reloadEpoch += 1;
+                const epoch = reloadEpoch;
                 currentDbName = newDb;
                 node.properties.selected_database = currentDbName;
                 updateBackendWidgets();
                 selectedIndex = null;
                 node.properties.selected_prompt_text = null;
                 setActiveSelection("", "", null, false);
-                await updateDbDropdown();
-                await fetchAndRender(true);
+                await updateDbDropdown(epoch);
+                await fetchAndRender(true, epoch);
                 setStatus(`Created & Switched to DB: '${newDb}'`);
             }, true);
         };
@@ -1957,11 +1989,13 @@ app.registerExtension({
                     method: "POST",
                     body: JSON.stringify({ old_db: currentDbName, new_db: newName, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                 });
+                reloadEpoch += 1;
+                const epoch = reloadEpoch;
                 currentDbName = newName;
                 node.properties.selected_database = currentDbName;
                 updateBackendWidgets();
-                await updateDbDropdown();
-                await fetchAndRender(false);
+                await updateDbDropdown(epoch);
+                await fetchAndRender(false, epoch);
                 setStatus(`Renamed DB to: '${newName}'`);
             }, true);
         };
@@ -1997,7 +2031,7 @@ app.registerExtension({
                     body: JSON.stringify({ db: currentDbName, global: isGlobal, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                 });
                 const data = await res.json();
-                await fetchAndRender(false);
+                await fetchAndRender(false, reloadEpoch);
                 setStatus(data.message || "Audited database(s)");
             } catch (err) {
                 setStatus("Failed to audit database images", true);
@@ -2026,18 +2060,35 @@ app.registerExtension({
         dbRow.appendChild(auditDbBtn);
         dbRow.appendChild(exportImagesBtn);
 
-        async function updateDbDropdown() {
+        async function updateDbDropdown(expectedEpoch = reloadEpoch) {
             const masterRoot = node.properties.master_root || "";
+            const desiredDb = currentDbName || node.properties.selected_database || "prompts_db";
             const res = await api.fetchApi(`/prompt_tracker/list_dbs?master_root=${encodeURIComponent(masterRoot)}`);
             const dbs = await res.json();
+
+            if (expectedEpoch !== reloadEpoch || (node.properties.master_root || "") !== masterRoot) {
+                return null;
+            }
+
+            const list = Array.isArray(dbs) && dbs.length > 0 ? dbs : ["prompts_db"];
+            const resolvedDb = list.includes(desiredDb)
+                ? desiredDb
+                : (list.includes("prompts_db") ? "prompts_db" : list[0]);
+
             dbSelect.innerHTML = "";
-            dbs.forEach(db => {
+            list.forEach(db => {
                 const opt = document.createElement("option");
                 opt.value = db;
                 opt.innerText = `📂 ${db}`;
-                if (db === currentDbName) opt.selected = true;
+                if (db === resolvedDb) opt.selected = true;
                 dbSelect.appendChild(opt);
             });
+            dbSelect.value = resolvedDb;
+
+            currentDbName = resolvedDb;
+            node.properties.selected_database = resolvedDb;
+            updateBackendWidgets();
+            return resolvedDb;
         }
 
         const promptGroupContainer = document.createElement("div");
@@ -2642,7 +2693,7 @@ app.registerExtension({
                         body: JSON.stringify({ db: currentDbName, category: catToDelete, master_root: node.properties.master_root, instance_uuid: getInstanceUuid() })
                     });
                     if (activeSelectedCategory === catToDelete) { activeSelectedCategory = "General"; updateBackendWidgets(); }
-                    await fetchAndRender(false);
+                    await fetchAndRender(false, reloadEpoch);
                     updateDirtyStateUI();
                 };
                 if (isShift) await performDel();
@@ -2707,7 +2758,7 @@ app.registerExtension({
                         currentImageInfo.render_model = "undefined";
                         updateBackendWidgets();
                     }
-                    await fetchAndRender(false);
+                    await fetchAndRender(false, reloadEpoch);
                     updateDirtyStateUI();
                 };
                 if (isShift) await performDel();
@@ -2866,7 +2917,7 @@ app.registerExtension({
         const listContainer = document.createElement("div");
         listContainer.tabIndex = 0;
         listContainer.style.flex = "1 1 0px";
-        listContainer.style.minHeight = "100px"; // 2 rows min
+        listContainer.style.minHeight = "100px";
         listContainer.style.overflowY = "scroll";
         listContainer.style.scrollbarWidth = "thin";
         listContainer.style.border = `1px solid ${activeTheme.border}`;
@@ -3016,12 +3067,11 @@ app.registerExtension({
             }
         };
 
-        // Clean event listener registration scoped strictly to this node's instance_uuid
         if (node._autoPromptListener) {
             api.removeEventListener("executed", node._autoPromptListener);
         }
 
-        node._lastPromptId = null; // Track last processed prompt execution ID
+        node._lastPromptId = null;
 
         node._autoPromptListener = async (e) => {
             if (!e.detail) return;
@@ -3030,7 +3080,6 @@ app.registerExtension({
             const payloads = (output.auto_capture || []).filter(Boolean);
             if (payloads.length === 0) return;
 
-            // Verify that the auto-capture payload explicitly targets this specific node instance UUID
             const targetInstanceUuid = getInstanceUuid();
             const matchingPayloads = payloads.map(raw => {
                 try { return JSON.parse(raw); } catch { return null; }
@@ -3038,7 +3087,6 @@ app.registerExtension({
 
             if (matchingPayloads.length === 0) return;
 
-            // Prevent duplicate handling of the exact same workflow execution run
             const promptId = e.detail.prompt_id || e.detail.id;
             if (promptId && node._lastPromptId === promptId) return;
             if (promptId) node._lastPromptId = promptId;
@@ -3046,7 +3094,6 @@ app.registerExtension({
             let added = 0;
             let lastDetail = null;
             try {
-                // Loop through all N items/frames in the batch payload matching this instance
                 for (const detail of matchingPayloads) {
                     lastDetail = detail;
 
@@ -3117,7 +3164,7 @@ app.registerExtension({
         }
 
         node._refreshListener = async (e) => {
-            if (!e.detail) return;
+            if (!e.detail || isConfiguring) return;
 
             if (e.detail.db === currentDbName && String(e.detail.master_root || "") === String(node.properties.master_root || "")) {
                 const isInitiator = String(e.detail.instance_uuid || "") === String(getInstanceUuid());
@@ -3225,31 +3272,41 @@ app.registerExtension({
             }
         }
 
-        async function fetchAndRender(autoSelectFirst = false) {
+        async function fetchAndRender(autoSelectFirst = false, expectedEpoch = reloadEpoch) {
             const masterRoot = node.properties.master_root || "";
-            const res = await api.fetchApi(`/prompt_tracker/get?db=${encodeURIComponent(currentDbName)}&master_root=${encodeURIComponent(masterRoot)}`);
-            localDb = await res.json();
+            const dbToFetch = currentDbName || node.properties.selected_database || "prompts_db";
+            const res = await api.fetchApi(`/prompt_tracker/get?db=${encodeURIComponent(dbToFetch)}&master_root=${encodeURIComponent(masterRoot)}`);
+            const rows = await res.json();
 
+            if (expectedEpoch !== reloadEpoch || (node.properties.master_root || "") !== masterRoot || currentDbName !== dbToFetch) {
+                return;
+            }
+
+            localDb = Array.isArray(rows) ? rows : [];
             await prefetchImagesAsBase64(localDb);
+
+            if (expectedEpoch !== reloadEpoch || (node.properties.master_root || "") !== masterRoot || currentDbName !== dbToFetch) {
+                return;
+            }
 
             updateCategoryDropdowns();
             renderList();
 
-            setTimeout(() => {
-                if (autoSelectFirst && localDb.length > 0) {
-                    const visible = getVisibleRows();
-                    if (visible.length > 0) {
-                        selectItemByIndex(0, visible);
-                        listContainer.focus();
-                    }
-                } else if (selectedIndex !== null && selectedIndex < localDb.length) {
-                    const visible = getVisibleRows();
-                    const vizPos = visible.findIndex(r => r.originalIndex === selectedIndex);
-                    if (vizPos !== -1) {
-                        selectItemByIndex(vizPos, visible);
-                    }
+            if (autoSelectFirst && localDb.length > 0) {
+                const visible = getVisibleRows();
+                if (visible.length > 0) {
+                    selectItemByIndex(0, visible);
                 }
-            }, 30);
+            } else if (selectedIndex !== null && selectedIndex < localDb.length) {
+                const visible = getVisibleRows();
+                const vizPos = visible.findIndex(r => r.originalIndex === selectedIndex);
+                if (vizPos !== -1) {
+                    selectItemByIndex(vizPos, visible);
+                }
+            } else if (autoSelectFirst && localDb.length === 0) {
+                selectedIndex = null;
+                setActiveSelection("", "", null, false);
+            }
 
             updateCounters(activeTextarea.value);
             node.setDirtyCanvas(true, true);
@@ -3349,7 +3406,7 @@ app.registerExtension({
                                 selectedIndex = null;
                                 setActiveSelection("", "", null, false);
                             }
-                            await fetchAndRender(false);
+                            await fetchAndRender(false, reloadEpoch);
                             setStatus(`Moved prompt to database: '${targetDb}'`);
                         } else {
                             setStatus(moveData.message || "Failed to move prompt", true);
@@ -3418,25 +3475,26 @@ app.registerExtension({
             listContainer.scrollTop = savedScrollTop;
         }
 
-        function syncFromProperties() {
+        function syncFromProperties(incomingProps = null) {
+            const props = incomingProps || node.properties || {};
             const rootWidget = node.widgets?.find(w => w.name === "master_root");
-            if (rootWidget && rootWidget.value && !node.properties.master_root) {
-                node.properties.master_root = rootWidget.value;
-            }
-
             const dbWidget = node.widgets?.find(w => w.name === "active_db");
-            if (dbWidget && dbWidget.value && !node.properties.selected_database) {
-                node.properties.selected_database = dbWidget.value;
-            }
 
-            if (node.properties?.master_root) {
-                masterPathInput.value = node.properties.master_root;
-                masterPathInput.title = node.properties.master_root;
-            }
-            if (node.properties?.selected_database) {
-                currentDbName = node.properties.selected_database;
-                dbSelect.value = currentDbName;
-            }
+            const resolvedRoot = (props.master_root !== undefined && props.master_root !== "")
+                ? props.master_root
+                : ((rootWidget && rootWidget.value) ? rootWidget.value : (node.properties.master_root || ""));
+
+            const resolvedDb = (props.selected_database !== undefined && props.selected_database !== "")
+                ? props.selected_database
+                : ((dbWidget && dbWidget.value) ? dbWidget.value : (node.properties.selected_database || currentDbName || "prompts_db"));
+
+            node.properties.master_root = resolvedRoot;
+            node.properties.selected_database = resolvedDb;
+            currentDbName = resolvedDb;
+
+            masterPathInput.value = resolvedRoot;
+            masterPathInput.title = resolvedRoot;
+            dbSelect.value = resolvedDb;
         }
 
         node.onResize = function (size) {
@@ -3446,57 +3504,72 @@ app.registerExtension({
         };
 
         node.onConfigure = async function (o) {
-            if (o && o.properties) {
-                node.properties = Object.assign({}, node.properties, o.properties);
-            }
+            isConfiguring = true;
+            reloadEpoch += 1;
+            const epoch = reloadEpoch;
 
-            node.properties.instanceUuid = (typeof crypto !== 'undefined' && crypto.randomUUID)
-                ? crypto.randomUUID()
-                : 'rsl-' + Math.random().toString(36).substring(2, 9) + '-' + Math.floor(Math.random() * 100000);
+            try {
+                const preservedUuid = node.properties?.instanceUuid;
+                if (o && o.properties) {
+                    node.properties = Object.assign({}, node.properties, o.properties);
+                }
 
-            syncFromProperties();
+                if (o?.properties?.instanceUuid) {
+                    node.properties.instanceUuid = o.properties.instanceUuid;
+                } else if (preservedUuid) {
+                    node.properties.instanceUuid = preservedUuid;
+                } else {
+                    ensureInstanceUuid();
+                }
 
-            hideBackendWidgets(this);
-            const enableWidget = this.widgets?.find(w => w.name === "enable_auto_capture");
-            if (enableWidget) {
-                enableWidget.computeSize = () => [0, -4];
-                enableWidget.draw = function () { };
-            }
+                hideBackendWidgets(this);
+                const enableWidget = this.widgets?.find(w => w.name === "enable_auto_capture");
+                if (enableWidget) {
+                    enableWidget.computeSize = () => [0, -4];
+                    enableWidget.draw = function () { };
+                }
 
-            if (node.properties?.nodeSize) {
-                this.setSize(node.properties.nodeSize);
-            }
-            if (node.properties?.topSectionHeight) {
-                topSectionWrapper.style.height = `${node.properties.topSectionHeight}px`;
-            }
-            if (node.properties?.promptBoxHeight) {
-                activePromptBox.style.height = `${node.properties.promptBoxHeight}px`;
-            }
-            if (node.properties?.negativeBoxHeight) {
-                activeNegativeBox.style.height = `${node.properties.negativeBoxHeight}px`;
-            }
-            if (node.properties?.activeTheme) {
-                savedThemeKey = node.properties.activeTheme;
-                activeTheme = getThemePalette(savedThemeKey);
-                const configuredTheme = THEMES[savedThemeKey] || THEMES.tracker;
-                node.color = configuredTheme.color;
-                node.bgcolor = configuredTheme.bgcolor;
-                applyThemeStyles();
-            }
+                if (node.properties?.nodeSize) {
+                    this.setSize(node.properties.nodeSize);
+                }
+                if (node.properties?.topSectionHeight) {
+                    topSectionWrapper.style.height = `${node.properties.topSectionHeight}px`;
+                }
+                if (node.properties?.promptBoxHeight) {
+                    activePromptBox.style.height = `${node.properties.promptBoxHeight}px`;
+                }
+                if (node.properties?.negativeBoxHeight) {
+                    activeNegativeBox.style.height = `${node.properties.negativeBoxHeight}px`;
+                }
+                if (node.properties?.activeTheme) {
+                    savedThemeKey = node.properties.activeTheme;
+                    activeTheme = getThemePalette(savedThemeKey);
+                    const configuredTheme = THEMES[savedThemeKey] || THEMES.tracker;
+                    node.color = configuredTheme.color;
+                    node.bgcolor = configuredTheme.bgcolor;
+                    applyThemeStyles();
+                }
 
-            currentDbName = node.properties?.selected_database || "prompts_db";
-            updateBackendWidgets();
-            await updateDbDropdown();
-            await fetchAndRender(true);
+                syncFromProperties(o?.properties);
+                updateBackendWidgets();
+
+                await updateDbDropdown(epoch);
+                await fetchAndRender(false, epoch);
+            } finally {
+                if (epoch === reloadEpoch) {
+                    isConfiguring = false;
+                }
+            }
         };
 
         node.addDOMWidget("prompt_tracker_panel", "container", container);
         node.setSize([460, 620]);
 
+        ensureInstanceUuid();
         syncFromProperties();
         updateBackendWidgets();
-        await updateDbDropdown();
-        await fetchAndRender(true);
+        await updateDbDropdown(reloadEpoch);
+        await fetchAndRender(true, reloadEpoch);
         setStatus("Ready");
     }
 });
