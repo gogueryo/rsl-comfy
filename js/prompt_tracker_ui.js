@@ -182,6 +182,7 @@ app.registerExtension({
         let previewCurrentPos = null;
         let currentImageInfo = { image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: "undefined", lora_info: "" };
         let autoCaptureState = true;
+        let followAutoPromptInPreview = false;
         let currentDbName = node.properties.selected_database;
         let searchFilterQuery = "";
         let filterFavoritesOnly = false;
@@ -505,6 +506,17 @@ app.registerExtension({
         lightboxOverlay.addEventListener("pointerdown", (e) => e.stopPropagation());
         lightboxOverlay.addEventListener("wheel", (e) => e.stopPropagation());
 
+        function focusLightboxOverlay() {
+            requestAnimationFrame(() => {
+                lightboxOverlay.focus({ preventScroll: true });
+                setTimeout(() => {
+                    if (lightboxOverlay.style.display === "flex" && document.activeElement !== lightboxOverlay) {
+                        lightboxOverlay.focus({ preventScroll: true });
+                    }
+                }, 20);
+            });
+        }
+
         let isFullscreen = false;
 
         function setFullscreen(enabled) {
@@ -528,7 +540,6 @@ app.registerExtension({
                 lightboxOverlay.style.zIndex = "30";
                 lightboxFullscreenBtn.innerText = "⛶ Fullscreen";
             }
-
             if (lightboxOverlay.style.display === "flex") {
                 focusLightboxOverlay();
             }
@@ -600,6 +611,33 @@ app.registerExtension({
         lightboxHeaderBtnGroup.style.gap = "6px";
         lightboxHeaderBtnGroup.style.alignItems = "center";
 
+        const followAutoLabel = document.createElement("label");
+        followAutoLabel.style.display = "flex";
+        followAutoLabel.style.alignItems = "center";
+        followAutoLabel.style.gap = "3px";
+        followAutoLabel.style.fontSize = "10px";
+        followAutoLabel.style.cursor = "pointer";
+        followAutoLabel.style.fontWeight = "bold";
+        followAutoLabel.style.color = activeTheme.blueBoxTitle || "#38bdf8";
+        followAutoLabel.title = "When checked, automatically advance preview to newly added auto-prompt entries";
+
+        const followAutoCheck = document.createElement("input");
+        followAutoCheck.type = "checkbox";
+        followAutoCheck.checked = followAutoPromptInPreview;
+        followAutoCheck.style.cursor = "pointer";
+
+        const followAutoText = document.createElement("span");
+        followAutoText.innerText = "Follow Auto-Prompt";
+
+        followAutoCheck.onchange = (e) => {
+            e.stopPropagation();
+            followAutoPromptInPreview = followAutoCheck.checked;
+            focusLightboxOverlay();
+        };
+
+        followAutoLabel.appendChild(followAutoCheck);
+        followAutoLabel.appendChild(followAutoText);
+
         const lightboxStarBtn = document.createElement("button");
         lightboxStarBtn.innerText = "☆ Favorite (Space)";
         styleButton(lightboxStarBtn, false, activeTheme);
@@ -622,6 +660,7 @@ app.registerExtension({
             if (previewFavsOnly && selectedIndex !== null && localDb[selectedIndex] && !localDb[selectedIndex].starred) {
                 navigateVisibleItems(1);
             }
+            focusLightboxOverlay();
         };
 
         const toggleFavoriteAction = async () => {
@@ -655,6 +694,7 @@ app.registerExtension({
         lightboxStarBtn.onclick = async (e) => {
             e.stopPropagation();
             await toggleFavoriteAction();
+            focusLightboxOverlay();
         };
 
         const lightboxFullscreenBtn = document.createElement("button");
@@ -676,6 +716,7 @@ app.registerExtension({
         lightboxCloseBtn.innerText = "✕ Close";
         styleButton(lightboxCloseBtn, true, activeTheme);
 
+        lightboxHeaderBtnGroup.appendChild(followAutoLabel);
         lightboxHeaderBtnGroup.appendChild(lightboxStarBtn);
         lightboxHeaderBtnGroup.appendChild(lightboxFavFilterBtn);
         lightboxHeaderBtnGroup.appendChild(lightboxFullscreenBtn);
@@ -965,7 +1006,7 @@ app.registerExtension({
 
                     lightboxImg.style.opacity = "1";
                     lightboxImg.style.filter = "none";
-                    lightboxOverlay.focus();
+                    focusLightboxOverlay();
                 } else {
                     selectedIndex = null;
                     setActiveSelection("", "", null, false);
@@ -1019,35 +1060,30 @@ app.registerExtension({
             updateStarButtonState();
         }
 
-        function focusLightboxOverlay() {
-            requestAnimationFrame(() => {
-                lightboxOverlay.focus({ preventScroll: true });
-                setTimeout(() => {
-                    if (lightboxOverlay.style.display === "flex" && document.activeElement !== lightboxOverlay) {
-                        lightboxOverlay.focus({ preventScroll: true });
-                    }
-                }, 20);
-            });
+        function syncLightboxToCurrentSelection(statusMessage = null) {
+            if (currentImageInfo.image) {
+                lightboxImg.src = getProxiedImageUrl(currentImageInfo.image);
+            } else {
+                lightboxImg.src = "";
+            }
+            lightboxImg.style.opacity = "1";
+            lightboxImg.style.filter = "none";
+
+            const item = selectedIndex !== null ? localDb[selectedIndex] : null;
+            lightboxImg.style.border = (item && item.starred) ? "1.5px solid #22c55e" : "none";
+
+            applyRotation(0, true);
+            updateLightboxHudFields();
+            previewCurrentPos = null;
+            if (statusMessage) setStatus(statusMessage);
         }
 
         function openLightboxForCurrentSelection() {
             if (currentImageInfo.image) {
                 setFullscreen(false);
-                const imgUrl = currentImageInfo.image;
-                lightboxImg.src = getProxiedImageUrl(imgUrl);
-                lightboxImg.style.opacity = "1";
-                lightboxImg.style.filter = "none";
-
-                const item = selectedIndex !== null ? localDb[selectedIndex] : null;
-                lightboxImg.style.border = (item && item.starred) ? "1.5px solid #22c55e" : "none";
-
-                applyRotation(0, true);
-                updateLightboxHudFields();
-                previewCurrentPos = null;
+                syncLightboxToCurrentSelection("Opened preview lightbox HUD");
                 lightboxOverlay.style.display = "flex";
-                // lightboxOverlay.focus();
                 focusLightboxOverlay();
-                setStatus("Opened preview lightbox HUD");
             } else {
                 setStatus("No image available to preview", true);
             }
@@ -1095,14 +1131,15 @@ app.registerExtension({
         lightboxHudToggleBtn.onclick = (e) => {
             e.stopPropagation();
             lightboxHud.style.display = lightboxHud.style.display === "none" ? "flex" : "none";
+            focusLightboxOverlay();
         };
 
-        lightboxRotateCcwBtn.onclick = (e) => { e.stopPropagation(); applyRotation(-90); };
-        lightboxRotateCwBtn.onclick = (e) => { e.stopPropagation(); applyRotation(90); };
+        lightboxRotateCcwBtn.onclick = (e) => { e.stopPropagation(); applyRotation(-90); focusLightboxOverlay(); };
+        lightboxRotateCwBtn.onclick = (e) => { e.stopPropagation(); applyRotation(90); focusLightboxOverlay(); };
         lightboxCloseBtn.onclick = (e) => { e.stopPropagation(); closeLightbox(); };
 
-        prevImgBtn.onclick = (e) => { e.stopPropagation(); navigateVisibleItems(-1); };
-        nextImgBtn.onclick = (e) => { e.stopPropagation(); navigateVisibleItems(1); };
+        prevImgBtn.onclick = (e) => { e.stopPropagation(); navigateVisibleItems(-1); focusLightboxOverlay(); };
+        nextImgBtn.onclick = (e) => { e.stopPropagation(); navigateVisibleItems(1); focusLightboxOverlay(); };
 
         updateActiveBtn.onclick = async (e) => {
             e.stopPropagation();
@@ -1176,6 +1213,7 @@ app.registerExtension({
             updateLightboxHudFields();
             await fetchAndRender(false);
             setStatus("Saved prompt and image updates successfully!");
+            focusLightboxOverlay();
         };
 
         lightboxOverlay.onkeydown = async (e) => {
@@ -1598,7 +1636,7 @@ app.registerExtension({
                 const val = isSelectMode ? modalSelect.value : (showInput ? modalInput.value.trim() : null);
                 await onConfirm(val);
                 if (lightboxOverlay.style.display === "flex") {
-                    lightboxOverlay.focus();
+                    focusLightboxOverlay();
                 } else {
                     listContainer.focus();
                 }
@@ -1618,14 +1656,14 @@ app.registerExtension({
                     e.preventDefault();
                     e.stopPropagation();
                     modalOverlay.style.display = "none";
-                    if (lightboxOverlay.style.display === "flex") lightboxOverlay.focus();
+                    if (lightboxOverlay.style.display === "flex") focusLightboxOverlay();
                 }
             };
 
             modalCancelBtn.onclick = (e) => {
                 e.stopPropagation();
                 modalOverlay.style.display = "none";
-                if (lightboxOverlay.style.display === "flex") lightboxOverlay.focus();
+                if (lightboxOverlay.style.display === "flex") focusLightboxOverlay();
             };
         }
 
@@ -3147,6 +3185,12 @@ app.registerExtension({
                             false
                         );
                     }
+
+                    if (lightboxOverlay.style.display === "flex" && followAutoPromptInPreview) {
+                        syncLightboxToCurrentSelection();
+                        focusLightboxOverlay();
+                    }
+
                     setStatus(added === 1
                         ? "Auto-prompt added and selected"
                         : `Added ${added} prompts from batch; selected the latest`);
