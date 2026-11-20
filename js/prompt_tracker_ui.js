@@ -15,9 +15,10 @@ function hideBackendWidgets(node) {
     node.widgets.forEach(w => {
         if ([
             "AutoCaptureOn", "auto_prompt", "auto_negative", "auto_render_model",
-            "auto_lora_info", "auto_image", "auto_steps", "auto_cfg", "auto_denoise", "auto_seed",
+            "auto_lora_info", "auto_steps", "auto_cfg", "auto_denoise", "auto_seed",
+            "auto_source", "auto_tag", "auto_notes", "auto_image",
             "prompt_value", "negative_value", "category_value", "model_value",
-            "loras_value", "config_value", "source_value", "tag_value",
+            "loras_value", "config_value", "source_value", "tag_value", "notes_value",
             "image_value",
             "steps", "cfg", "denoise", "seed", "active_db", "master_root", "instance_uuid"
         ].includes(w.name)) {
@@ -232,6 +233,7 @@ app.registerExtension({
             const cfg = item ? (item.config || "") : "";
             const src = item ? (item.source || "") : "";
             const tgs = item ? (item.tags || "") : "";
+            const nts = item ? (item.notes || "") : "";
 
             const isPromptDirty = activeTextarea.value !== pText;
             const isNegDirty = activeNegativeTextarea.value !== nText;
@@ -241,11 +243,13 @@ app.registerExtension({
             const isConfigDirty = configInput.value.trim() !== cfg;
             const isSourceDirty = sourceInput.value.trim() !== src;
             const isTagDirty = tagInput.value.trim() !== tgs;
+            const isNotesDirty = notesTextarea.value !== nts;
 
-            const isAnyDirty = isPromptDirty || isNegDirty || isCatDirty || isModDirty || isLoraDirty || isConfigDirty || isSourceDirty || isTagDirty;
+            const isAnyDirty = isPromptDirty || isNegDirty || isCatDirty || isModDirty || isLoraDirty || isConfigDirty || isSourceDirty || isTagDirty || isNotesDirty;
 
             updateFieldDirtyBorder(activePromptBox, isPromptDirty, defBlue);
             updateFieldDirtyBorder(activeNegativeBox, isNegDirty, defNeg);
+            updateFieldDirtyBorder(notesBox, isNotesDirty, defBlue);
 
             if (categoryDropdown.displayBtn) updateFieldDirtyBorder(categoryDropdown.displayBtn, isCatDirty, defaultBorder);
             if (modelDropdown.displayBtn) updateFieldDirtyBorder(modelDropdown.displayBtn, isModDirty, defaultBorder);
@@ -262,6 +266,7 @@ app.registerExtension({
             updateFieldDirtyBorder(hudConfigInput, isConfigDirty, defaultBorder);
             updateFieldDirtyBorder(hudSourceInput, isSourceDirty, defaultBorder);
             updateFieldDirtyBorder(hudTagsInput, isTagDirty, defaultBorder);
+            if (hudNotesArea) updateFieldDirtyBorder(hudNotesArea, isNotesDirty, defBlue);
 
             updateBtn.style.border = isAnyDirty ? `2px solid ${red}` : `1.5px solid ${defaultBorder}`;
             updateBtn.style.boxShadow = isAnyDirty ? "0 0 8px rgba(239, 68, 68, 0.6)" : "none";
@@ -321,6 +326,7 @@ app.registerExtension({
                 config: item.config || "",
                 source: item.source || "",
                 tags: item.tags || "",
+                notes: item.notes || "",
                 starred: item.starred || false,
                 image_info: {
                     ...imgInfo,
@@ -348,6 +354,7 @@ app.registerExtension({
                 if (w.name === "config_value") w.value = configInput.value.trim();
                 if (w.name === "source_value") w.value = sourceInput.value.trim();
                 if (w.name === "tag_value") w.value = tagInput.value.trim();
+                if (w.name === "notes_value") w.value = notesTextarea.value;
                 if (w.name === "steps") w.value = currentImageInfo.steps;
                 if (w.name === "cfg") w.value = currentImageInfo.cfg;
                 if (w.name === "denoise") w.value = currentImageInfo.denoise;
@@ -781,7 +788,7 @@ app.registerExtension({
         lightboxHud.style.display = "flex";
         lightboxHud.style.flexDirection = "column";
         lightboxHud.style.gap = "4px";
-        lightboxHud.style.maxHeight = "60%";
+        lightboxHud.style.maxHeight = "65%";
         lightboxHud.style.overflowY = "auto";
         lightboxHud.style.boxShadow = "0 4px 16px rgba(0,0,0,0.8)";
 
@@ -809,6 +816,14 @@ app.registerExtension({
         hudNegArea.style.resize = "vertical";
         styleInput(hudNegArea, activeTheme);
         hudNegArea.style.color = "#f472b6";
+
+        const hudNotesTitle = createHudFieldLabel("NOTES (EDITABLE):");
+        const hudNotesArea = document.createElement("textarea");
+        hudNotesArea.style.width = "100%";
+        hudNotesArea.style.height = "36px";
+        hudNotesArea.style.resize = "vertical";
+        styleInput(hudNotesArea, activeTheme);
+        hudNotesArea.style.color = activeTheme.blueBoxText || "#e2e8f0";
 
         const hudMetaRow1 = document.createElement("div");
         hudMetaRow1.style.display = "flex";
@@ -892,6 +907,7 @@ app.registerExtension({
 
         hudPromptArea.oninput = () => { activeTextarea.value = hudPromptArea.value; updateBackendWidgets(); updateCounters(hudPromptArea.value); updateDirtyStateUI(); };
         hudNegArea.oninput = () => { activeNegativeTextarea.value = hudNegArea.value; updateBackendWidgets(); updateDirtyStateUI(); };
+        hudNotesArea.oninput = () => { notesTextarea.value = hudNotesArea.value; updateBackendWidgets(); updateDirtyStateUI(); };
         hudCatInput.oninput = () => { activeSelectedCategory = hudCatInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
         hudModelInput.oninput = () => { activeSelectedModel = hudModelInput.value; currentImageInfo.render_model = activeSelectedModel; updateBackendWidgets(); updateDirtyStateUI(); };
         hudSourceInput.oninput = () => { sourceInput.value = hudSourceInput.value; updateBackendWidgets(); updateDirtyStateUI(); };
@@ -902,6 +918,8 @@ app.registerExtension({
         lightboxHud.appendChild(hudPromptArea);
         lightboxHud.appendChild(hudNegTitle);
         lightboxHud.appendChild(hudNegArea);
+        lightboxHud.appendChild(hudNotesTitle);
+        lightboxHud.appendChild(hudNotesArea);
         lightboxHud.appendChild(hudMetaRow1);
         lightboxHud.appendChild(hudMetaRow2);
 
@@ -1009,6 +1027,7 @@ app.registerExtension({
                     focusLightboxOverlay();
                 } else {
                     selectedIndex = null;
+                    notesTextarea.value = "";
                     setActiveSelection("", "", null, false);
                     closeLightbox();
                 }
@@ -1047,6 +1066,7 @@ app.registerExtension({
         function updateLightboxHudFields() {
             hudPromptArea.value = activeTextarea.value;
             hudNegArea.value = activeNegativeTextarea.value;
+            hudNotesArea.value = notesTextarea.value;
             hudCatInput.value = activeSelectedCategory;
             hudModelInput.value = activeSelectedModel;
             hudSourceInput.value = sourceInput.value;
@@ -1190,6 +1210,7 @@ app.registerExtension({
 
             activeTextarea.value = hudPromptArea.value;
             activeNegativeTextarea.value = hudNegArea.value;
+            notesTextarea.value = hudNotesArea.value;
             activeSelectedCategory = hudCatInput.value || "General";
             activeSelectedModel = hudModelInput.value || "undefined";
             sourceInput.value = hudSourceInput.value;
@@ -1524,6 +1545,7 @@ app.registerExtension({
                 node.properties.selected_database = currentDbName;
                 updateBackendWidgets();
                 selectedIndex = null;
+                notesTextarea.value = "";
                 setActiveSelection("", "", null, false);
                 await updateDbDropdown(reloadEpoch);
                 await fetchAndRender(true, reloadEpoch);
@@ -1970,6 +1992,7 @@ app.registerExtension({
             updateBackendWidgets();
             selectedIndex = null;
             node.properties.selected_prompt_text = null;
+            notesTextarea.value = "";
             setActiveSelection("", "", null, false);
             await fetchAndRender(true, epoch);
             if (epoch === reloadEpoch) {
@@ -2009,6 +2032,7 @@ app.registerExtension({
                 updateBackendWidgets();
                 selectedIndex = null;
                 node.properties.selected_prompt_text = null;
+                notesTextarea.value = "";
                 setActiveSelection("", "", null, false);
                 await updateDbDropdown(epoch);
                 await fetchAndRender(true, epoch);
@@ -2299,6 +2323,10 @@ app.registerExtension({
                     const rawDroppedLoraInfo = parsed.lora_info || droppedImgInfo.lora_info || "";
                     setLoraInfo(rawDroppedLoraInfo);
 
+                    if (parsed.notes !== undefined) {
+                        notesTextarea.value = parsed.notes;
+                    }
+
                     currentImageInfo = {
                         image: imgUrl,
                         steps: droppedImgInfo.steps ?? 20,
@@ -2324,6 +2352,9 @@ app.registerExtension({
                         localDb[selectedIndex].config = droppedConfig;
                         localDb[selectedIndex].render_model = droppedModel;
                         localDb[selectedIndex].lora_info = rawDroppedLoraInfo;
+                        if (parsed.notes !== undefined) {
+                            localDb[selectedIndex].notes = parsed.notes;
+                        }
 
                         await api.fetchApi("/prompt_tracker/update", {
                             method: "POST",
@@ -2336,6 +2367,7 @@ app.registerExtension({
                                 config: droppedConfig,
                                 render_model: droppedModel,
                                 lora_info: rawDroppedLoraInfo,
+                                notes: notesTextarea.value,
                                 master_root: node.properties.master_root,
                                 instance_uuid: getInstanceUuid()
                             })
@@ -2525,6 +2557,7 @@ app.registerExtension({
             configInput.value = "";
             sourceInput.value = "";
             tagInput.value = "";
+            notesTextarea.value = "";
             setImageInfo(currentImageInfo, false);
             selectedIndex = null;
             previewCurrentPos = null;
@@ -2543,6 +2576,7 @@ app.registerExtension({
             const config = configInput.value.trim();
             const source = sourceInput.value.trim();
             const tags = tagInput.value.trim();
+            const notes = notesTextarea.value;
             const prompt = activeTextarea.value;
             const negative = activeNegativeTextarea.value;
             let image_info = { ...currentImageInfo, lora_info: lora_info, render_model: render_model };
@@ -2575,6 +2609,7 @@ app.registerExtension({
                     config,
                     source,
                     tags,
+                    notes,
                     prompt,
                     negative,
                     image_info,
@@ -2623,6 +2658,7 @@ app.registerExtension({
             const config = configInput.value.trim();
             const source = sourceInput.value.trim();
             const tags = tagInput.value.trim();
+            const notes = notesTextarea.value;
             const prompt = activeTextarea.value;
             const negative = activeNegativeTextarea.value;
             let image_info = { ...currentImageInfo, lora_info: lora_info, render_model: render_model };
@@ -2661,6 +2697,7 @@ app.registerExtension({
                         config,
                         source,
                         tags,
+                        notes,
                         prompt,
                         negative,
                         image_info,
@@ -2853,6 +2890,43 @@ app.registerExtension({
         pipelineRow.appendChild(lorasDropdown);
         pipelineRow.appendChild(configInput);
 
+        const notesBox = document.createElement("div");
+        notesBox.style.display = "flex";
+        notesBox.style.flexDirection = "column";
+        notesBox.style.gap = "2px";
+        notesBox.style.backgroundColor = activeTheme.blueBoxBg;
+        notesBox.style.border = `1px solid ${activeTheme.blueBoxBorder}`;
+        notesBox.style.borderRadius = "6px";
+        notesBox.style.padding = "4px 6px";
+        notesBox.style.height = "46px";
+        notesBox.style.flexShrink = "0";
+        notesBox.style.boxSizing = "border-box";
+
+        const notesTitle = document.createElement("div");
+        notesTitle.innerText = "NOTES (EDITABLE):";
+        notesTitle.style.fontSize = "9px";
+        notesTitle.style.fontWeight = "bold";
+        notesTitle.style.color = activeTheme.blueBoxTitle;
+
+        const notesTextarea = document.createElement("textarea");
+        notesTextarea.placeholder = "Notes...";
+        notesTextarea.style.width = "100%";
+        notesTextarea.style.height = "100%";
+        notesTextarea.style.flex = "1";
+        notesTextarea.style.backgroundColor = "transparent";
+        notesTextarea.style.color = activeTheme.blueBoxText;
+        notesTextarea.style.border = "none";
+        notesTextarea.style.outline = "none";
+        notesTextarea.style.resize = "none";
+        notesTextarea.style.fontFamily = "monospace, sans-serif";
+        notesTextarea.style.fontSize = "11px";
+        notesTextarea.style.boxSizing = "border-box";
+
+        notesTextarea.oninput = () => { updateBackendWidgets(); updateDirtyStateUI(); };
+
+        notesBox.appendChild(notesTitle);
+        notesBox.appendChild(notesTextarea);
+
         function setItemCategory(catName) {
             const target = catName || "General";
             dbCategories.add(target);
@@ -2900,7 +2974,7 @@ app.registerExtension({
         searchInputWrapper.style.alignItems = "center";
 
         const searchInput = document.createElement("input");
-        searchInput.placeholder = "🔍 Search prompts, tags, models...";
+        searchInput.placeholder = "🔍 Search prompts, tags, models, notes...";
         searchInput.style.width = "100%";
         styleInput(searchInput, activeTheme);
         searchInput.style.paddingRight = "22px";
@@ -2949,6 +3023,7 @@ app.registerExtension({
         inputAreaWrapper.appendChild(actionBtnRow);
         inputAreaWrapper.appendChild(metadataRow);
         inputAreaWrapper.appendChild(pipelineRow);
+        inputAreaWrapper.appendChild(notesBox);
         inputAreaWrapper.appendChild(searchRow);
         container.appendChild(inputAreaWrapper);
 
@@ -3010,6 +3085,7 @@ app.registerExtension({
                     config: droppedPromptData.config || "",
                     source: droppedPromptData.source || "Cross-Tracker Drop",
                     tags: droppedPromptData.tags || "",
+                    notes: droppedPromptData.notes || "",
                     prompt: droppedPromptData.prompt || "",
                     negative: droppedPromptData.negative || "",
                     image_info: {
@@ -3043,6 +3119,7 @@ app.registerExtension({
                         selectItemByIndex(vizPos, visible);
                     } else {
                         selectedIndex = newIndex;
+                        notesTextarea.value = payload.notes;
                         setActiveSelection(payload.prompt, payload.negative, payload.image_info, payload.is_embedded);
                     }
                     setStatus("Successfully imported & selected dropped prompt!");
@@ -3064,7 +3141,7 @@ app.registerExtension({
                 if (imageFilterMode === "image" && !hasImg) return;
                 if (imageFilterMode === "no_image" && hasImg) return;
                 if (terms.length > 0) {
-                    const combined = `${item.category || ''} ${item.render_model || ''} ${item.lora_info || ''} ${item.image_info?.lora_info || ''} ${item.tags || ''} ${item.prompt || ''} ${item.negative || ''} ${item.source || ''}`.toLowerCase();
+                    const combined = `${item.category || ''} ${item.render_model || ''} ${item.lora_info || ''} ${item.image_info?.lora_info || ''} ${item.tags || ''} ${item.notes || ''} ${item.prompt || ''} ${item.negative || ''} ${item.source || ''}`.toLowerCase();
                     if (!terms.every(term => combined.includes(term))) return;
                 }
                 const vizIdx = visibleRowsMap.length;
@@ -3143,8 +3220,9 @@ app.registerExtension({
                             render_model: detail.render_model || activeSelectedModel,
                             lora_info: detail.lora_info || "",
                             config: detail.config || "",
-                            source: detail.source || "Auto-Prompt",
+                            source: detail.source || sourceInput.value.trim() || "Auto-Prompt",
                             tags: detail.tags || tagInput.value.trim(),
+                            notes: detail.notes !== undefined ? detail.notes : notesTextarea.value,
                             prompt: detail.prompt || "",
                             negative: detail.negative || "",
                             image_info: detail.image_info || currentImageInfo,
@@ -3178,6 +3256,9 @@ app.registerExtension({
                         selectItemByIndex(vizPos, visible);
                     } else {
                         selectedIndex = newIdx;
+                        sourceInput.value = lastDetail.source || sourceInput.value.trim() || "Auto-Prompt";
+                        tagInput.value = lastDetail.tags || tagInput.value.trim();
+                        notesTextarea.value = lastDetail.notes !== undefined ? lastDetail.notes : notesTextarea.value;
                         setActiveSelection(
                             lastDetail.prompt || "",
                             lastDetail.negative || "",
@@ -3274,6 +3355,10 @@ app.registerExtension({
             container.style.backgroundColor = activeTheme.bgDark;
             container.style.color = activeTheme.textPrimary;
             container.style.borderColor = activeTheme.border;
+            notesBox.style.backgroundColor = activeTheme.blueBoxBg;
+            notesBox.style.borderColor = activeTheme.blueBoxBorder;
+            notesTitle.style.color = activeTheme.blueBoxTitle;
+            notesTextarea.style.color = activeTheme.blueBoxText;
             statusBar.style.backgroundColor = activeTheme.bgCard;
             renderList();
         }
@@ -3292,6 +3377,7 @@ app.registerExtension({
             configInput.value = item.config || "";
             sourceInput.value = item.source || "";
             tagInput.value = item.tags || "";
+            notesTextarea.value = item.notes || "";
 
             currentImageInfo = {
                 ...(item.image_info || { image: "", steps: 20, cfg: 8.0, denoise: 1.0, seed: 0, render_model: item.render_model || "undefined" }),
@@ -3349,6 +3435,7 @@ app.registerExtension({
                 }
             } else if (autoSelectFirst && localDb.length === 0) {
                 selectedIndex = null;
+                notesTextarea.value = "";
                 setActiveSelection("", "", null, false);
             }
 
@@ -3448,6 +3535,7 @@ app.registerExtension({
                         if (moveData.status === "success") {
                             if (selectedIndex === originalIndex) {
                                 selectedIndex = null;
+                                notesTextarea.value = "";
                                 setActiveSelection("", "", null, false);
                             }
                             await fetchAndRender(false, reloadEpoch);
@@ -3486,6 +3574,7 @@ app.registerExtension({
                                 selectItemByIndex(nextVizIdx, visibleRowsAfterDel);
                             } else {
                                 selectedIndex = null;
+                                notesTextarea.value = "";
                                 setActiveSelection("", "", null, false);
                             }
                             listContainer.focus();
@@ -3607,7 +3696,7 @@ app.registerExtension({
         };
 
         node.addDOMWidget("prompt_tracker_panel", "container", container);
-        node.setSize([460, 620]);
+        node.setSize([460, 660]);
 
         ensureInstanceUuid();
         syncFromProperties();

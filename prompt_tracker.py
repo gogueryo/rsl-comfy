@@ -331,11 +331,14 @@ class PromptTrackerNode:
                 "auto_negative": ("STRING", {"forceInput": True}),
                 "auto_render_model": ("STRING", {"forceInput": True}),
                 "auto_lora_info": ("STRING", {"forceInput": True}),
-                "auto_image": ("IMAGE", {"forceInput": True}),
                 "auto_steps": ("INT", {"forceInput": True}),
                 "auto_cfg": ("FLOAT", {"forceInput": True}),
                 "auto_denoise": ("FLOAT", {"forceInput": True}),
                 "auto_seed": ("INT", {"forceInput": True}),
+                "auto_source": ("STRING", {"forceInput": True}),
+                "auto_tag": ("STRING", {"forceInput": True}),
+                "auto_notes": ("STRING", {"forceInput": True}),
+                "auto_image": ("IMAGE", {"forceInput": True}),
                 "prompt_value": ("STRING", {"default": ""}),
                 "negative_value": ("STRING", {"default": ""}),
                 "category_value": ("STRING", {"default": "General"}),
@@ -344,6 +347,7 @@ class PromptTrackerNode:
                 "config_value": ("STRING", {"default": ""}),
                 "source_value": ("STRING", {"default": ""}),
                 "tag_value": ("STRING", {"default": ""}),
+                "notes_value": ("STRING", {"default": ""}),
                 "image_value": ("STRING", {"default": ""}),
                 "steps": ("INT", {"default": 20}),
                 "cfg": ("FLOAT", {"default": 8.0}),
@@ -369,6 +373,7 @@ class PromptTrackerNode:
         "INT",
         "STRING",
         "STRING",
+        "STRING",
         "IMAGE",
     )
     RETURN_NAMES = (
@@ -384,6 +389,7 @@ class PromptTrackerNode:
         "seed",
         "source",
         "tag",
+        "notes",
         "image",
     )
     FUNCTION = "track_prompt"
@@ -403,11 +409,14 @@ class PromptTrackerNode:
         auto_negative="",
         auto_render_model="",
         auto_lora_info="",
-        auto_image=None,
         auto_steps=None,
         auto_cfg=None,
         auto_denoise=None,
         auto_seed=None,
+        auto_source="",
+        auto_tag="",
+        auto_notes="",
+        auto_image=None,
         prompt_value="",
         negative_value="",
         category_value="General",
@@ -416,6 +425,7 @@ class PromptTrackerNode:
         config_value="",
         source_value="",
         tag_value="",
+        notes_value="",
         image_value="",
         steps=20,
         cfg=8.0,
@@ -441,6 +451,9 @@ class PromptTrackerNode:
         raw_auto_neg = unwrap(auto_negative)
         raw_auto_model = unwrap(auto_render_model)
         raw_auto_lora = unwrap(auto_lora_info)
+        raw_auto_source = unwrap(auto_source)
+        raw_auto_tag = unwrap(auto_tag)
+        raw_auto_notes = unwrap(auto_notes)
 
         final_prompt = raw_auto if raw_auto.strip() else str(prompt_value or "")
         final_negative = (
@@ -453,6 +466,13 @@ class PromptTrackerNode:
         )
         final_lora_info = (
             raw_auto_lora if raw_auto_lora.strip() else str(loras_value or "")
+        )
+        final_source = (
+            raw_auto_source if raw_auto_source.strip() else str(source_value or "")
+        )
+        final_tag = raw_auto_tag if raw_auto_tag.strip() else str(tag_value or "")
+        final_notes = (
+            raw_auto_notes if raw_auto_notes.strip() else str(notes_value or "")
         )
 
         final_steps = (
@@ -508,8 +528,9 @@ class PromptTrackerNode:
                                 "render_model": final_model,
                                 "lora_info": raw_auto_lora,
                                 "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
-                                "source": source_value or "Auto-Prompt",
-                                "tags": tag_value,
+                                "source": final_source or "Auto-Prompt",
+                                "tags": final_tag,
+                                "notes": final_notes,
                                 "steps": final_steps,
                                 "cfg": final_cfg,
                                 "denoise": final_denoise,
@@ -556,6 +577,7 @@ class PromptTrackerNode:
                 "negative_prompt": [final_negative],
                 "render_model": [final_model],
                 "lora_info": [final_lora_info],
+                "notes": [final_notes],
                 "auto_capture": auto_capture_list,
             },
             "result": (
@@ -569,8 +591,9 @@ class PromptTrackerNode:
                 final_cfg,
                 final_denoise,
                 final_seed,
-                source_value,
-                tag_value,
+                str(final_source),
+                str(final_tag),
+                str(final_notes),
                 output_image_tensor,
             ),
         }
@@ -717,6 +740,7 @@ async def add_prompt(request):
             "config": json_data.get("config", ""),
             "source": json_data.get("source", ""),
             "tags": json_data.get("tags", ""),
+            "notes": json_data.get("notes", ""),
             "image_info": processed_image_info,
             "is_embedded": is_embedded,
             "starred": json_data.get("starred", False),
@@ -790,6 +814,7 @@ async def update_prompt(request):
             existing["config"] = json_data.get("config", existing.get("config", ""))
             existing["source"] = json_data.get("source", existing.get("source", ""))
             existing["tags"] = json_data.get("tags", existing.get("tags", ""))
+            existing["notes"] = json_data.get("notes", existing.get("notes", ""))
             existing["is_embedded"] = is_embedded
             existing["updated_at"] = datetime.utcnow().isoformat()
 
