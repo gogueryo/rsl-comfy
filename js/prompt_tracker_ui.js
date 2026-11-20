@@ -2679,8 +2679,6 @@ app.registerExtension({
                 }
             }
 
-            if (!prompt.trim() && !negative.trim()) return;
-
             const targetIndex = selectedIndex;
             const currentItem = localDb[targetIndex];
 
@@ -3198,7 +3196,12 @@ app.registerExtension({
             const targetInstanceUuid = getInstanceUuid();
             const matchingPayloads = payloads.map(raw => {
                 try { return JSON.parse(raw); } catch { return null; }
-            }).filter(detail => detail && detail.prompt && String(detail.instance_uuid || "") === String(targetInstanceUuid));
+            }).filter(detail =>
+                detail &&
+                detail.prompt !== undefined &&
+                detail.prompt !== null &&
+                String(detail.instance_uuid || "") === String(targetInstanceUuid)
+            );
 
             if (matchingPayloads.length === 0) return;
 
@@ -3207,25 +3210,55 @@ app.registerExtension({
             if (promptId) node._lastPromptId = promptId;
 
             let added = 0;
-            let lastDetail = null;
+            let lastNormalized = null;
             try {
                 for (const detail of matchingPayloads) {
-                    lastDetail = detail;
+                    const resolvedCategory = detail.category || "General";
+                    const resolvedModel = detail.render_model || "undefined";
+                    const resolvedLora = detail.lora_info ?? "";
+                    const resolvedConfig = detail.config ?? "";
+                    const resolvedSource = detail.source ?? "Auto-Prompt";
+                    const resolvedTags = detail.tags ?? "";
+                    const resolvedNotes = detail.notes ?? "";
+                    const resolvedPrompt = String(detail.prompt ?? "");
+                    const resolvedNegative = String(detail.negative ?? "");
+                    const resolvedImageInfo = detail.image_info || {
+                        image: "",
+                        steps: 20,
+                        cfg: 8.0,
+                        denoise: 1.0,
+                        seed: 0,
+                        render_model: resolvedModel,
+                        lora_info: String(resolvedLora)
+                    };
+
+                    const normalized = {
+                        category: String(resolvedCategory),
+                        render_model: String(resolvedModel),
+                        lora_info: String(resolvedLora),
+                        config: String(resolvedConfig),
+                        source: String(resolvedSource),
+                        tags: String(resolvedTags),
+                        notes: String(resolvedNotes),
+                        prompt: resolvedPrompt,
+                        negative: resolvedNegative,
+                        image_info: resolvedImageInfo
+                    };
 
                     const res = await api.fetchApi("/prompt_tracker/add", {
                         method: "POST",
                         body: JSON.stringify({
                             db: currentDbName,
-                            category: detail.category || activeSelectedCategory,
-                            render_model: detail.render_model || activeSelectedModel,
-                            lora_info: detail.lora_info || "",
-                            config: detail.config || "",
-                            source: detail.source || sourceInput.value.trim() || "Auto-Prompt",
-                            tags: detail.tags || tagInput.value.trim(),
-                            notes: detail.notes !== undefined ? detail.notes : notesTextarea.value,
-                            prompt: detail.prompt || "",
-                            negative: detail.negative || "",
-                            image_info: detail.image_info || currentImageInfo,
+                            category: normalized.category,
+                            render_model: normalized.render_model,
+                            lora_info: normalized.lora_info,
+                            config: normalized.config,
+                            source: normalized.source,
+                            tags: normalized.tags,
+                            notes: normalized.notes,
+                            prompt: normalized.prompt,
+                            negative: normalized.negative,
+                            image_info: normalized.image_info,
                             is_embedded: false,
                             starred: false,
                             master_root: node.properties.master_root,
@@ -3236,11 +3269,12 @@ app.registerExtension({
                     const data = await res.json();
                     if (data.status === "success") {
                         localDb = data.db;
+                        lastNormalized = normalized;
                         added += 1;
                     }
                 }
 
-                if (added > 0 && lastDetail) {
+                if (added > 0 && lastNormalized) {
                     await prefetchImagesAsBase64(localDb);
                     updateCategoryDropdowns();
                     renderList();
@@ -3256,13 +3290,17 @@ app.registerExtension({
                         selectItemByIndex(vizPos, visible);
                     } else {
                         selectedIndex = newIdx;
-                        sourceInput.value = lastDetail.source || sourceInput.value.trim() || "Auto-Prompt";
-                        tagInput.value = lastDetail.tags || tagInput.value.trim();
-                        notesTextarea.value = lastDetail.notes !== undefined ? lastDetail.notes : notesTextarea.value;
+                        setItemCategory(lastNormalized.category);
+                        setModelValue(lastNormalized.render_model);
+                        setLoraInfo(lastNormalized.lora_info);
+                        configInput.value = lastNormalized.config;
+                        sourceInput.value = lastNormalized.source;
+                        tagInput.value = lastNormalized.tags;
+                        notesTextarea.value = lastNormalized.notes;
                         setActiveSelection(
-                            lastDetail.prompt || "",
-                            lastDetail.negative || "",
-                            lastDetail.image_info || null,
+                            lastNormalized.prompt,
+                            lastNormalized.negative,
+                            lastNormalized.image_info,
                             false
                         );
                     }

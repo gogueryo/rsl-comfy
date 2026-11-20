@@ -405,17 +405,17 @@ class PromptTrackerNode:
         self,
         AutoCaptureOn=True,
         enable_auto_capture=None,
-        auto_prompt="",
-        auto_negative="",
-        auto_render_model="",
-        auto_lora_info="",
+        auto_prompt=None,
+        auto_negative=None,
+        auto_render_model=None,
+        auto_lora_info=None,
         auto_steps=None,
         auto_cfg=None,
         auto_denoise=None,
         auto_seed=None,
-        auto_source="",
-        auto_tag="",
-        auto_notes="",
+        auto_source=None,
+        auto_tag=None,
+        auto_notes=None,
         auto_image=None,
         prompt_value="",
         negative_value="",
@@ -437,70 +437,57 @@ class PromptTrackerNode:
         node_id=None,
         prompt=None,
     ):
-        def unwrap(val, default=""):
-            v = val
+        def resolve_str(auto_val, default_val):
+            if auto_val is None:
+                return default_val
+            v = auto_val
             while isinstance(v, (list, tuple)):
                 if len(v) > 0:
                     v = v[0]
                 else:
-                    v = default
-                    break
-            return str(v) if v is not None else default
+                    return default_val
+            return str(v) if v is not None else default_val
 
-        raw_auto = unwrap(auto_prompt)
-        raw_auto_neg = unwrap(auto_negative)
-        raw_auto_model = unwrap(auto_render_model)
-        raw_auto_lora = unwrap(auto_lora_info)
-        raw_auto_source = unwrap(auto_source)
-        raw_auto_tag = unwrap(auto_tag)
-        raw_auto_notes = unwrap(auto_notes)
+        def resolve_num(auto_val, default_val, cast_fn):
+            if auto_val is None:
+                return cast_fn(default_val)
+            v = auto_val
+            while isinstance(v, (list, tuple)):
+                if len(v) > 0:
+                    v = v[0]
+                else:
+                    return cast_fn(default_val)
+            if v is None:
+                return cast_fn(default_val)
+            try:
+                return cast_fn(v)
+            except (TypeError, ValueError):
+                return cast_fn(default_val)
 
-        final_prompt = raw_auto if raw_auto.strip() else str(prompt_value or "")
-        final_negative = (
-            raw_auto_neg if raw_auto_neg.strip() else str(negative_value or "")
+        final_prompt = resolve_str(auto_prompt, "")
+        final_negative = resolve_str(auto_negative, "")
+        final_category = (
+            str(category_value).strip()
+            if category_value and str(category_value).strip()
+            else "General"
         )
-        final_model = (
-            raw_auto_model
-            if raw_auto_model.strip()
-            else str(model_value or "undefined")
-        )
-        final_lora_info = (
-            raw_auto_lora if raw_auto_lora.strip() else str(loras_value or "")
-        )
-        final_source = (
-            raw_auto_source if raw_auto_source.strip() else str(source_value or "")
-        )
-        final_tag = raw_auto_tag if raw_auto_tag.strip() else str(tag_value or "")
-        final_notes = (
-            raw_auto_notes if raw_auto_notes.strip() else str(notes_value or "")
-        )
+        final_model = resolve_str(auto_render_model, "undefined") or "undefined"
+        final_lora_info = resolve_str(auto_lora_info, "")
+        final_source = resolve_str(auto_source, "Auto-Prompt")
+        final_tag = resolve_str(auto_tag, "")
+        final_notes = resolve_str(auto_notes, "")
+        final_config = str(config_value or "")
 
-        final_steps = (
-            int(auto_steps[0])
-            if isinstance(auto_steps, (list, tuple)) and len(auto_steps) > 0
-            else (int(auto_steps) if auto_steps is not None else steps)
-        )
-        final_cfg = (
-            float(auto_cfg[0])
-            if isinstance(auto_cfg, (list, tuple)) and len(auto_cfg) > 0
-            else (float(auto_cfg) if auto_cfg is not None else cfg)
-        )
-        final_denoise = (
-            float(auto_denoise[0])
-            if isinstance(auto_denoise, (list, tuple)) and len(auto_denoise) > 0
-            else (float(auto_denoise) if auto_denoise is not None else denoise)
-        )
-        final_seed = (
-            int(auto_seed[0])
-            if isinstance(auto_seed, (list, tuple)) and len(auto_seed) > 0
-            else (int(auto_seed) if auto_seed is not None else seed)
-        )
+        final_steps = resolve_num(auto_steps, 20, int)
+        final_cfg = resolve_num(auto_cfg, 8.0, float)
+        final_denoise = resolve_num(auto_denoise, 1.0, float)
+        final_seed = resolve_num(auto_seed, 0, int)
 
         output_image_tensor = None
         should_capture = self.is_auto_prompt(AutoCaptureOn, enable_auto_capture)
         auto_capture_list = []
 
-        if raw_auto.strip() and auto_image is not None:
+        if final_prompt.strip() and auto_image is not None:
             output_image_tensor = auto_image
             if should_capture and node_id is not None:
                 try:
@@ -522,13 +509,13 @@ class PromptTrackerNode:
                     auto_capture_list.append(
                         json.dumps(
                             {
-                                "prompt": raw_auto,
+                                "prompt": final_prompt,
                                 "negative": final_negative,
-                                "category": category_value,
+                                "category": final_category,
                                 "render_model": final_model,
-                                "lora_info": raw_auto_lora,
+                                "lora_info": final_lora_info,
                                 "config": f"Steps: {final_steps}, CFG: {final_cfg}, Denoise: {final_denoise}, Seed: {final_seed}",
-                                "source": final_source or "Auto-Prompt",
+                                "source": final_source,
                                 "tags": final_tag,
                                 "notes": final_notes,
                                 "steps": final_steps,
@@ -546,7 +533,7 @@ class PromptTrackerNode:
                                     "denoise": final_denoise,
                                     "seed": final_seed,
                                     "render_model": final_model,
-                                    "lora_info": raw_auto_lora,
+                                    "lora_info": final_lora_info,
                                 },
                             }
                         )
@@ -583,10 +570,10 @@ class PromptTrackerNode:
             "result": (
                 str(final_prompt),
                 str(final_negative),
-                category_value,
+                final_category,
                 final_model,
                 final_lora_info,
-                config_value,
+                final_config,
                 final_steps,
                 final_cfg,
                 final_denoise,
