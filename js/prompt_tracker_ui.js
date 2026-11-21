@@ -509,6 +509,7 @@ app.registerExtension({
         lightboxOverlay.style.padding = "8px";
         lightboxOverlay.style.boxSizing = "border-box";
         lightboxOverlay.style.outline = "none";
+        lightboxOverlay.style.overflow = "hidden";
 
         lightboxOverlay.addEventListener("pointerdown", (e) => e.stopPropagation());
         lightboxOverlay.addEventListener("wheel", (e) => e.stopPropagation());
@@ -535,6 +536,10 @@ app.registerExtension({
                 lightboxOverlay.style.left = "0";
                 lightboxOverlay.style.width = "100vw";
                 lightboxOverlay.style.height = "100vh";
+                lightboxOverlay.style.height = "100dvh";
+                lightboxOverlay.style.maxHeight = "100dvh";
+                lightboxOverlay.style.borderRadius = "0";
+                lightboxOverlay.style.padding = "calc(8px + env(safe-area-inset-top, 0px)) calc(10px + env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) calc(10px + env(safe-area-inset-left, 0px))";
                 lightboxOverlay.style.zIndex = "99999";
                 lightboxFullscreenBtn.innerText = "⛶ Exit Fullscreen";
             } else {
@@ -544,8 +549,11 @@ app.registerExtension({
                 lightboxOverlay.style.left = "0";
                 lightboxOverlay.style.width = "100%";
                 lightboxOverlay.style.height = "100%";
+                lightboxOverlay.style.maxHeight = "100%";
+                lightboxOverlay.style.borderRadius = "8px";
+                lightboxOverlay.style.padding = "8px";
                 lightboxOverlay.style.zIndex = "30";
-                lightboxFullscreenBtn.innerText = "⛶ Fullscreen";
+                lightboxFullscreenBtn.innerText = "⛶ Fullscreen (F)";
             }
             if (lightboxOverlay.style.display === "flex") {
                 focusLightboxOverlay();
@@ -560,10 +568,13 @@ app.registerExtension({
 
         const lightboxHeader = document.createElement("div");
         lightboxHeader.style.display = "flex";
+        lightboxHeader.style.flexWrap = "wrap";
         lightboxHeader.style.justifyContent = "space-between";
         lightboxHeader.style.alignItems = "center";
+        lightboxHeader.style.gap = "4px 8px";
         lightboxHeader.style.width = "100%";
         lightboxHeader.style.padding = "2px 4px";
+        lightboxHeader.style.flexShrink = "0";
         lightboxHeader.style.boxSizing = "border-box";
 
         const lightboxTitle = document.createElement("div");
@@ -615,7 +626,8 @@ app.registerExtension({
 
         const lightboxHeaderBtnGroup = document.createElement("div");
         lightboxHeaderBtnGroup.style.display = "flex";
-        lightboxHeaderBtnGroup.style.gap = "6px";
+        lightboxHeaderBtnGroup.style.flexWrap = "wrap";
+        lightboxHeaderBtnGroup.style.gap = "4px 6px";
         lightboxHeaderBtnGroup.style.alignItems = "center";
 
         const followAutoLabel = document.createElement("label");
@@ -736,25 +748,65 @@ app.registerExtension({
 
         const lightboxBody = document.createElement("div");
         lightboxBody.style.position = "relative";
-        lightboxBody.style.flex = "1";
+        lightboxBody.style.flex = "1 1 0px";
+        lightboxBody.style.minHeight = "0";
         lightboxBody.style.width = "100%";
         lightboxBody.style.display = "flex";
         lightboxBody.style.justifyContent = "center";
         lightboxBody.style.alignItems = "center";
         lightboxBody.style.overflow = "hidden";
         lightboxBody.style.margin = "4px 0";
+        lightboxBody.style.touchAction = "pan-y";
         lightboxBody.title = "Drag this preview area to another tracker to copy prompt + file image reference!";
 
-        lightboxBody.draggable = true;
-        lightboxBody.ondragstart = (e) => {
-            e.stopPropagation();
-            if (selectedIndex === null || !localDb[selectedIndex]) return;
-            const item = localDb[selectedIndex];
-            const transferData = createPromptTransferPayload(item, node.properties.master_root, getInstanceUuid());
-            e.dataTransfer.setData("application/rsl-prompt-transfer", JSON.stringify(transferData));
-            e.dataTransfer.setData("text/plain", JSON.stringify(transferData));
-            e.dataTransfer.effectAllowed = "copy";
-        };
+        const isTouchCapable = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+        if (!isTouchCapable) {
+            lightboxBody.draggable = true;
+            lightboxBody.ondragstart = (e) => {
+                e.stopPropagation();
+                if (selectedIndex === null || !localDb[selectedIndex]) return;
+                const item = localDb[selectedIndex];
+                const transferData = createPromptTransferPayload(item, node.properties.master_root, getInstanceUuid());
+                e.dataTransfer.setData("application/rsl-prompt-transfer", JSON.stringify(transferData));
+                e.dataTransfer.setData("text/plain", JSON.stringify(transferData));
+                e.dataTransfer.effectAllowed = "copy";
+            };
+        }
+
+        let swipeStartX = null;
+        let swipeStartY = null;
+        let swipeStartTime = 0;
+
+        lightboxBody.addEventListener("touchstart", (e) => {
+            if (e.touches.length !== 1) {
+                swipeStartX = null;
+                return;
+            }
+            if (lightboxHud.contains(e.target) || ["TEXTAREA", "INPUT", "BUTTON", "SELECT"].includes(e.target.tagName)) {
+                swipeStartX = null;
+                return;
+            }
+            swipeStartX = e.touches[0].clientX;
+            swipeStartY = e.touches[0].clientY;
+            swipeStartTime = Date.now();
+        }, { passive: true });
+
+        lightboxBody.addEventListener("touchend", (e) => {
+            if (swipeStartX === null || !e.changedTouches || e.changedTouches.length === 0) return;
+            const dx = e.changedTouches[0].clientX - swipeStartX;
+            const dy = e.changedTouches[0].clientY - swipeStartY;
+            const elapsed = Date.now() - swipeStartTime;
+            swipeStartX = null;
+            swipeStartY = null;
+
+            if (elapsed < 800 && Math.abs(dx) >= 45 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+                if (dx < 0) {
+                    navigateVisibleItems(1);
+                } else {
+                    navigateVisibleItems(-1);
+                }
+            }
+        }, { passive: true });
 
         const lightboxImg = document.createElement("img");
         lightboxImg.style.maxWidth = "95%";
@@ -788,7 +840,7 @@ app.registerExtension({
         lightboxHud.style.display = "flex";
         lightboxHud.style.flexDirection = "column";
         lightboxHud.style.gap = "4px";
-        lightboxHud.style.maxHeight = "65%";
+        lightboxHud.style.maxHeight = "60%";
         lightboxHud.style.overflowY = "auto";
         lightboxHud.style.boxShadow = "0 4px 16px rgba(0,0,0,0.8)";
 
@@ -928,11 +980,14 @@ app.registerExtension({
 
         const lightboxNavRow = document.createElement("div");
         lightboxNavRow.style.display = "flex";
+        lightboxNavRow.style.flexWrap = "wrap";
         lightboxNavRow.style.justifyContent = "space-between";
         lightboxNavRow.style.alignItems = "center";
         lightboxNavRow.style.width = "100%";
-        lightboxNavRow.style.gap = "8px";
+        lightboxNavRow.style.gap = "6px 8px";
         lightboxNavRow.style.flexShrink = "0";
+        lightboxNavRow.style.paddingRight = "36px";
+        lightboxNavRow.style.boxSizing = "border-box";
 
         const prevImgBtn = document.createElement("button");
         prevImgBtn.innerText = "◄ Prev (←)";
@@ -940,8 +995,9 @@ app.registerExtension({
 
         const lightboxRightActionGroup = document.createElement("div");
         lightboxRightActionGroup.style.display = "flex";
+        lightboxRightActionGroup.style.flexWrap = "wrap";
         lightboxRightActionGroup.style.alignItems = "center";
-        lightboxRightActionGroup.style.gap = "8px";
+        lightboxRightActionGroup.style.gap = "4px 8px";
 
         const lightboxEmbedLabel = document.createElement("label");
         lightboxEmbedLabel.style.display = "flex";
