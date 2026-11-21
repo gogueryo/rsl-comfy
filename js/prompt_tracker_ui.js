@@ -480,20 +480,52 @@ app.registerExtension({
 
             if (cRect.height > 0 && canvasRect.height > 0) {
                 const rawDelta = (cRect.top - nodeBodyScreenTop) / scale;
-                // Pull all the way up to 5px below the node title bar
-                return -(rawDelta - 5);
+                // Move ~30px higher than the image_c7cbcd.png position
+                return -(rawDelta + 30);
             }
-            return -44;
+            return -120;
+        }
+
+        function isComfyAppMode() {
+            const graphEl =
+                (typeof app !== "undefined" && app.canvasContainer) ||
+                document.getElementById("graph-canvas-container");
+
+            if (!graphEl) return false;
+
+            if (graphEl.style?.display === "none") {
+                return true;
+            }
+
+            return window.getComputedStyle(graphEl).display === "none";
+        }
+
+        function resetOverlayContainerStyles() {
+            container.style.opacity = "1";
+            container.style.width = "100%";
+            container.style.height = "100%";
+            container.style.margin = "0";
+            container.style.zIndex = "auto";
         }
 
         function applyOverlayMode(enabled) {
-            overlayMode = Boolean(enabled);
-            node.properties.overlayMode = overlayMode;
+            if (typeof enabled === "boolean") {
+                overlayMode = enabled;
+                node.properties.overlayMode = overlayMode;
+            }
+
+            const inAppMode = isComfyAppMode();
 
             if (typeof overlayBtn !== "undefined") {
                 overlayBtn.innerText = overlayMode ? "🪟 Overlay: ON" : "🪟 Overlay: OFF";
-                overlayBtn.style.color = overlayMode ? "#4ade80" : activeTheme.textPrimary;
-                overlayBtn.style.borderColor = overlayMode ? "#4ade80" : activeTheme.border;
+                overlayBtn.style.color = (!inAppMode && overlayMode) ? "#4ade80" : activeTheme.textPrimary;
+                overlayBtn.style.borderColor = (!inAppMode && overlayMode) ? "#4ade80" : activeTheme.border;
+            }
+
+            // In App Mode, render normally without altering saved overlayMode preference
+            if (inAppMode) {
+                resetOverlayContainerStyles();
+                return;
             }
 
             if (overlayMode) {
@@ -503,19 +535,42 @@ app.registerExtension({
                 container.style.zIndex = "15";
 
                 requestAnimationFrame(() => {
-                    if (!overlayMode) return;
+                    if (!overlayMode || isComfyAppMode()) return;
                     const topShift = getOverlayTopInset();
                     container.style.margin = `${topShift}px 5px 0 5px`;
                     container.style.height = `calc(100% + ${Math.abs(topShift)}px)`;
                 });
             } else {
-                container.style.opacity = "1";
-                container.style.width = "100%";
-                container.style.height = "100%";
-                container.style.margin = "0";
-                container.style.zIndex = "auto";
+                resetOverlayContainerStyles();
             }
         }
+
+        // Watch #graph-canvas-container for App Mode transitions (e.g. style="display: none;")
+        const graphElForAppMode =
+            (typeof app !== "undefined" && app.canvasContainer) ||
+            document.getElementById("graph-canvas-container");
+
+        let appModeObserver = null;
+        if (graphElForAppMode && typeof MutationObserver !== "undefined") {
+            appModeObserver = new MutationObserver(() => {
+                applyOverlayMode(overlayMode);
+            });
+            appModeObserver.observe(graphElForAppMode, {
+                attributes: true,
+                attributeFilter: ["style", "class"]
+            });
+        }
+
+        const origOnRemoved = node.onRemoved;
+        node.onRemoved = function () {
+            if (appModeObserver) {
+                appModeObserver.disconnect();
+                appModeObserver = null;
+            }
+            if (origOnRemoved) {
+                return origOnRemoved.apply(this, arguments);
+            }
+        };
 
         const topSectionWrapper = document.createElement("div");
         topSectionWrapper.style.display = "flex";
