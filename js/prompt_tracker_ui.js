@@ -150,6 +150,7 @@ app.registerExtension({
         if (!node.properties) node.properties = {};
         if (!node.properties.selected_database) node.properties.selected_database = "prompts_db";
         if (node.properties.master_root === undefined) node.properties.master_root = "";
+        if (node.properties.overlayMode === undefined) node.properties.overlayMode = false;
 
         let reloadEpoch = 0;
         let isConfiguring = false;
@@ -192,13 +193,7 @@ app.registerExtension({
         let promptFontSize = node.properties.promptFontSize;
         let currentRotationAngle = 0;
         let currentDirModalMode = "master";
-
-        let dbCategories = new Set(["General"]);
-        let dbModels = new Set(["undefined"]);
-        let dbLoras = new Set([""]);
-        let activeSelectedCategory = "General";
-        let activeSelectedModel = "undefined";
-        let activeSelectedLora = "";
+        let overlayMode = Boolean(node.properties.overlayMode);
 
         hideBackendWidgets(node);
         const enableWidget = node.widgets?.find(w => w.name === "enable_auto_capture");
@@ -469,6 +464,58 @@ app.registerExtension({
         container.style.width = "100%";
         container.style.height = "100%";
         container.style.overflow = "hidden";
+        container.style.transition = "opacity 0.15s ease, margin 0.15s ease";
+
+        function getOverlayTopInset() {
+            const cRect = container.getBoundingClientRect();
+            const nPos = node.pos || [0, 0];
+            const ds = app.canvas?.ds;
+            const scale = ds?.scale || 1;
+            const offset = ds?.offset || [0, 0];
+            const canvasEl = app.canvas?.canvas;
+            const canvasRect = canvasEl ? canvasEl.getBoundingClientRect() : { top: 0 };
+
+            const titleHeight = LiteGraph?.NODE_TITLE_HEIGHT || 30;
+            const nodeBodyScreenTop = canvasRect.top + (nPos[1] + titleHeight + offset[1]) * scale;
+
+            if (cRect.height > 0 && canvasRect.height > 0) {
+                const rawDelta = (cRect.top - nodeBodyScreenTop) / scale;
+                // Pull all the way up to 5px below the node title bar
+                return -(rawDelta - 5);
+            }
+            return -44;
+        }
+
+        function applyOverlayMode(enabled) {
+            overlayMode = Boolean(enabled);
+            node.properties.overlayMode = overlayMode;
+
+            if (typeof overlayBtn !== "undefined") {
+                overlayBtn.innerText = overlayMode ? "🪟 Overlay: ON" : "🪟 Overlay: OFF";
+                overlayBtn.style.color = overlayMode ? "#4ade80" : activeTheme.textPrimary;
+                overlayBtn.style.borderColor = overlayMode ? "#4ade80" : activeTheme.border;
+            }
+
+            if (overlayMode) {
+                container.style.opacity = "0.9";
+                container.style.width = "calc(100% - 10px)";
+                container.style.margin = "0 5px";
+                container.style.zIndex = "15";
+
+                requestAnimationFrame(() => {
+                    if (!overlayMode) return;
+                    const topShift = getOverlayTopInset();
+                    container.style.margin = `${topShift}px 5px 0 5px`;
+                    container.style.height = `calc(100% + ${Math.abs(topShift)}px)`;
+                });
+            } else {
+                container.style.opacity = "1";
+                container.style.width = "100%";
+                container.style.height = "100%";
+                container.style.margin = "0";
+                container.style.zIndex = "auto";
+            }
+        }
 
         const topSectionWrapper = document.createElement("div");
         topSectionWrapper.style.display = "flex";
@@ -1991,11 +2038,22 @@ app.registerExtension({
             setTimeout(() => copyBtn.innerText = "📋 Copy", 1200);
         };
 
+        const overlayBtn = document.createElement("button");
+        overlayBtn.innerText = overlayMode ? "🪟 Overlay: ON" : "🪟 Overlay: OFF";
+        overlayBtn.title = "Overlay UI from top with 0.9 alpha and 5px inset (keeps inputs/outputs untouched)";
+        styleButton(overlayBtn, false, activeTheme);
+        overlayBtn.onclick = (e) => {
+            e.stopPropagation();
+            applyOverlayMode(!overlayMode);
+            setStatus(`Overlay mode ${overlayMode ? "ON (0.9 alpha, 5px inset)" : "OFF"}`);
+        };
+
         toolBtnGroup.appendChild(toggleLabel);
         toolBtnGroup.appendChild(fontDownBtn);
         toolBtnGroup.appendChild(fontUpBtn);
         toolBtnGroup.appendChild(themeDropdown);
         toolBtnGroup.appendChild(copyBtn);
+        toolBtnGroup.appendChild(overlayBtn);
         topToolbar.appendChild(counterBadge);
         topToolbar.appendChild(toolBtnGroup);
 
@@ -3454,6 +3512,7 @@ app.registerExtension({
             notesTitle.style.color = activeTheme.blueBoxTitle;
             notesTextarea.style.color = activeTheme.blueBoxText;
             statusBar.style.backgroundColor = activeTheme.bgCard;
+            applyOverlayMode(overlayMode);
             renderList();
         }
 
@@ -3722,6 +3781,10 @@ app.registerExtension({
             masterPathInput.value = resolvedRoot;
             masterPathInput.title = resolvedRoot;
             dbSelect.value = resolvedDb;
+
+            if (props.overlayMode !== undefined) {
+                applyOverlayMode(Boolean(props.overlayMode));
+            }
         }
 
         node.onResize = function (size) {
