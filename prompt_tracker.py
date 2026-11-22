@@ -464,24 +464,36 @@ class PromptTrackerNode:
             except (TypeError, ValueError):
                 return cast_fn(default_val)
 
-        final_prompt = resolve_str(auto_prompt, "")
-        final_negative = resolve_str(auto_negative, "")
+        final_prompt = resolve_str(auto_prompt, str(prompt_value or ""))
+        final_negative = resolve_str(auto_negative, str(negative_value or ""))
         final_category = (
             str(category_value).strip()
             if category_value and str(category_value).strip()
             else "General"
         )
-        final_model = resolve_str(auto_render_model, "undefined") or "undefined"
-        final_lora_info = resolve_str(auto_lora_info, "")
-        final_source = resolve_str(auto_source, "Auto-Prompt")
-        final_tag = resolve_str(auto_tag, "")
-        final_notes = resolve_str(auto_notes, "")
+        resolved_model_default = (
+            str(model_value).strip()
+            if model_value and str(model_value).strip()
+            else "undefined"
+        )
+        final_model = (
+            resolve_str(auto_render_model, resolved_model_default) or "undefined"
+        )
+        final_lora_info = resolve_str(auto_lora_info, str(loras_value or ""))
+        resolved_source_default = (
+            str(source_value).strip()
+            if source_value and str(source_value).strip()
+            else "Auto-Prompt"
+        )
+        final_source = resolve_str(auto_source, resolved_source_default)
+        final_tag = resolve_str(auto_tag, str(tag_value or ""))
+        final_notes = resolve_str(auto_notes, str(notes_value or ""))
         final_config = str(config_value or "")
 
-        final_steps = resolve_num(auto_steps, 20, int)
-        final_cfg = resolve_num(auto_cfg, 8.0, float)
-        final_denoise = resolve_num(auto_denoise, 1.0, float)
-        final_seed = resolve_num(auto_seed, 0, int)
+        final_steps = resolve_num(auto_steps, steps, int)
+        final_cfg = resolve_num(auto_cfg, cfg, float)
+        final_denoise = resolve_num(auto_denoise, denoise, float)
+        final_seed = resolve_num(auto_seed, seed, int)
 
         output_image_tensor = None
         should_capture = self.is_auto_prompt(AutoCaptureOn, enable_auto_capture)
