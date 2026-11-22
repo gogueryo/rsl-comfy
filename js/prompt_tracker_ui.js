@@ -195,6 +195,13 @@ app.registerExtension({
         let currentDirModalMode = "master";
         let overlayMode = Boolean(node.properties.overlayMode);
 
+        let activeSelectedCategory = "General";
+        let activeSelectedModel = "undefined";
+        let activeSelectedLora = "";
+        let dbCategories = new Set(["General"]);
+        let dbModels = new Set(["undefined"]);
+        let dbLoras = new Set([""]);
+
         hideBackendWidgets(node);
         const enableWidget = node.widgets?.find(w => w.name === "enable_auto_capture");
         if (enableWidget) {
@@ -337,6 +344,7 @@ app.registerExtension({
 
         function updateBackendWidgets() {
             if (!node.widgets) return;
+
             node.widgets.forEach(w => {
                 if (w.name === "prompt_value") w.value = activeTextarea.value;
                 if (w.name === "negative_value") w.value = activeNegativeTextarea.value;
